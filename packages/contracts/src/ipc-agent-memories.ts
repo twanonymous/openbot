@@ -164,6 +164,16 @@ export function isAgentMemorySelectionState(value: unknown, budgetBytes = 8192):
  * as automatic, searchable memories. On by default. Local only: the setting and the user memories
  * stay on this computer.
  */
+/** A user memory: what every agent knows about the user. The settings page edits them on this computer. */
+export interface UpdateUserMemoryInput {
+  memoryId: string;
+  text: string;
+}
+
+export interface SetUserMemoryInclusionInput {
+  changes: AgentMemorySelectionChange[];
+}
+
 export interface MemoryCapturePreference {
   enabled: boolean;
 }

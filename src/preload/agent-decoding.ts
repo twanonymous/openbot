@@ -1,8 +1,13 @@
+import { USER_MEMORY_CONTEXT_BUDGET_BYTES } from "@openbot/contracts/agent-memory-context";
 import {
   type AgentSessionSettings,
   type HiddenAgentsSnapshot,
   isAgentSessionSettings,
   isHiddenAgentsSnapshot,
+  isMemoryCapturePreference,
+  isMemoryEntry,
+  type MemoryCapturePreference,
+  type MemoryEntry,
 } from "@openbot/contracts/ipc";
 // What main answers for agents: provider status, models, the agents themselves, memories, routines,
 // shared tables and the sidebar layout.
@@ -219,6 +224,27 @@ export function decodeMemorySelection(value: unknown): AgentMemorySelectionState
 
 export function decodeOptionalMemorySelection(value: unknown): AgentMemorySelectionState | null {
   return value === null ? null : decodeMemorySelection(value);
+}
+
+export function decodeUserMemory(value: unknown): MemoryEntry {
+  if (!isMemoryEntry(value)) throw new Error("Invalid user memory response.");
+  return value;
+}
+
+export function decodeUserMemories(value: unknown): MemoryEntry[] {
+  if (!Array.isArray(value) || !value.every(isMemoryEntry)) throw new Error("Invalid user memories response.");
+  return value;
+}
+
+export function decodeUserMemorySelection(value: unknown): AgentMemorySelectionState {
+  if (!isAgentMemorySelectionState(value, USER_MEMORY_CONTEXT_BUDGET_BYTES))
+    throw new Error("Invalid user memory selection response.");
+  return value;
+}
+
+export function decodeMemoryCapturePreference(value: unknown): MemoryCapturePreference {
+  if (!isMemoryCapturePreference(value)) throw new Error("Invalid memory capture setting response.");
+  return value;
 }
 export function decodeAgentSessionSettingsFromMain(value: unknown): AgentSessionSettings {
   if (!isAgentSessionSettings(value)) throw new Error("Invalid session settings response.");

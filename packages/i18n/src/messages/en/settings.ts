@@ -70,6 +70,18 @@ export const messages = defineMessages("settings", {
   "settings.busyMessage.title": "Steer agents while they work",
   "settings.busyMessage.description":
     "New messages join the agent’s current work, not the queue. Works with ChatGPT and Claude.",
+  // The Memory tab: what every agent knows about the user. Local to this computer.
+  "settings.memory.about.section": "About you",
+  "settings.memory.about.title": "Memories about you",
+  "settings.memory.about.description":
+    "Facts that every agent knows about you, such as your name, preferences, people, and routines.",
+  "settings.memory.about.count": { one: "{count} saved.", other: "{count} saved." },
+  "settings.memory.about.manage": "Manage",
+  "settings.memory.ownerLabel": "you",
+  "settings.memory.capture.title": "Keep facts before context is lost",
+  "settings.memory.capture.description":
+    "When an agent starts a new session, its model reads the end of the old one and saves lasting facts as searchable memories. This uses the agent’s model.",
+  "settings.memory.capture.saveFailed": "Could not save the memory setting.",
   // The Agents tab: the defaults of the agents on this computer.
   "settings.agentDefaults.title": "Defaults",
   "settings.agentDefaults.description": "Agents follow these defaults, unless you change them for an agent.",
@@ -150,6 +162,8 @@ export const messages = defineMessages("settings", {
   "settings.tab.agents.title": "Agents",
   "settings.tab.agents.description":
     "Choose what the agents on this computer can do when you do not set it for an agent.",
+  "settings.tab.memory.title": "Memory",
+  "settings.tab.memory.description": "Choose what every agent remembers about you. Memories stay on this computer.",
   "settings.tab.notifications.title": "Notifications",
   "settings.tab.notifications.description": "Choose how OpenBot alerts you.",
   "settings.tab.voice.title": "Voice",

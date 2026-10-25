@@ -12,12 +12,15 @@ export const messages = defineMessages("memory", {
     "This agent has reached the limit of {limit} memories. Edit, merge, or delete a memory before you add another one.",
   "memory.limitChannel":
     "This channel has reached the limit of {limit} memories. Edit, merge, or delete a memory before you add another one.",
+  "memory.limitUser":
+    "You have reached the limit of {limit} memories about you. Edit, merge, or delete a memory before you add another one.",
   "memory.loading": "Loading memories…",
   "memory.emptyLead": "Tell it once.",
   "memory.emptyTitle": "It will {remember}.",
   "memory.emptyRemember": "remember",
   "memory.emptyLearnsAgent": "{name} saves what it learns in your chats.",
   "memory.emptyLearnsChannel": "Agents in {name} save what they learn here.",
+  "memory.emptyLearnsUser": "Every agent saves what it learns about {name}.",
   "memory.emptyAddOwn": "You can also add a memory yourself.",
   "memory.sample.updates": "The user prefers short progress updates with the result first.",
   "memory.sample.scripts": "Use Bun for package scripts.",

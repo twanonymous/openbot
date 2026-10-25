@@ -1,4 +1,5 @@
-// The seam that lets one memories modal serve an agent and a channel.
+// The seam that lets one memories modal serve an agent, a channel, and the user memories that every
+// agent shares.
 //
 // Everything the modal renders is owner-agnostic; only the five calls, the event filter and three
 // words of copy are not. They live here, so `AgentMemoriesModal` names no owner at all.
@@ -16,7 +17,7 @@ export interface MemoriesPort {
   /** The name the modal shows the user, such as `Chief` or `Project Falcon`. */
   ownerLabel: string;
   /** The word the modal reads in its sentences: "This agent has no saved memories yet." */
-  ownerNoun: "agent" | "channel";
+  ownerNoun: "agent" | "channel" | "user";
   /** Null when another computer holds the cap: its host refuses a memory past it. */
   limit: number | null;
   list: () => Promise<MemoryEntry[]>;
@@ -54,6 +55,40 @@ export function agentMemoriesPort(agentId: string, agentName: string, limit: num
     subscribe: (reload) =>
       window.openbot.agent.onEvent((event) => {
         if (event.type === "memories-changed" && event.agentId === agentId) reload();
+      }),
+  };
+}
+
+/**
+ * The user memories: what every agent of this computer knows about the user. Local only, so the
+ * calls go to this computer whichever server is selected.
+ */
+export function userMemoriesPort(
+  ownerLabel: string,
+  api: OpenBotDesktopApi["userMemories"] = window.openbot.userMemories,
+  onEvent: OpenBotDesktopApi["agent"]["onEvent"] = window.openbot.agent.onEvent,
+): MemoriesPort {
+  return {
+    ownerId: "user",
+    ownerLabel,
+    ownerNoun: "user",
+    limit: INPUT_LIMITS.userMemories,
+    list: () => api.list(),
+    selection: {
+      read: () => api.getSelection(),
+      set: (changes) => api.setInclusion({ changes }),
+    },
+    create: async (text) => {
+      await api.create(text);
+    },
+    update: async (memoryId, text) => {
+      await api.update({ memoryId, text });
+    },
+    remove: (memoryId) => api.delete(memoryId),
+    clear: () => api.clear(),
+    subscribe: (reload) =>
+      onEvent((event) => {
+        if (event.type === "user-memories-changed") reload();
       }),
   };
 }

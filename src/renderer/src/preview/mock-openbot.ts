@@ -188,6 +188,7 @@ import { createMockSkills, type MockSkillsOptions } from "./mock-skills";
 import { createMockStorage } from "./mock-storage";
 import { clone, type Listener, type MockRuntime, matchesQuery } from "./mock-support";
 import { createMockTeam, type MockTeamOptions } from "./mock-team";
+import { createMockUserMemories } from "./mock-user-memories";
 import { createMockVault } from "./mock-vault";
 import { createMockVoice, type MockVoiceOptions } from "./mock-voice";
 import { type MockWorkflowSeed, mockWorkflows } from "./mock-workflows";
@@ -1274,6 +1275,7 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
     onePasswordConnector: createMockOnePasswordConnector(),
     bitwardenConnector: createMockBitwardenConnector(),
     vault: createMockVault(),
+    userMemories: createMockUserMemories(emitAgentEvent),
     billing: createMockBilling(billingPlans),
     license: createMockLicense(),
     routineFeed: createMockRoutineFeed(),

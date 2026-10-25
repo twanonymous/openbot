@@ -33,10 +33,11 @@ const DAY_MS = 86_400_000;
 const LEARNS_TEXT = {
   agent: "memory.emptyLearnsAgent",
   channel: "memory.emptyLearnsChannel",
-} as const satisfies Record<"agent" | "channel", keyof AppMessages>;
+  user: "memory.emptyLearnsUser",
+} as const satisfies Record<"agent" | "channel" | "user", keyof AppMessages>;
 
 export interface AgentMemoriesEmptyProps {
-  ownerNoun: "agent" | "channel";
+  ownerNoun: "agent" | "channel" | "user";
   ownerLabel: string;
   addDisabled: boolean;
   onAdd: () => void;

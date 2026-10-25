@@ -91,6 +91,7 @@ import { skillIpcHandlers } from "./ipc/skill-handlers";
 import { storageIpcHandlers } from "./ipc/storage-handlers";
 import { teamIpcHandlers } from "./ipc/team-handlers";
 import { updateIpcHandlers } from "./ipc/update-handlers";
+import { userMemoryIpcHandlers } from "./ipc/user-memory-handlers";
 import { vaultIpcHandlers } from "./ipc/vault-handlers";
 import { voiceIpcHandlers } from "./ipc/voice-handlers";
 import { workflowIpcHandlers } from "./ipc/workflow-handlers";
@@ -536,6 +537,7 @@ function registerIpcHandlers({
   busyMessageMode,
   agentDefaults,
   agentMemoryLimit,
+  memoryCapture,
   agentAccess,
   teamStore,
   serverTimezone,
@@ -698,6 +700,7 @@ function registerIpcHandlers({
       takePendingPluginSlug: () => takePendingDeepLink("plugin"),
     }),
     ...memoryIpcHandlers({ service, remoteServers }),
+    ...userMemoryIpcHandlers({ service, memoryCapture }),
     ...sharedTableIpcHandlers({ service, remoteServers }),
     ...routineIpcHandlers({ service, remoteServers }),
     ...routineFlowIpcHandlers({ routineFlows, remoteServers }),

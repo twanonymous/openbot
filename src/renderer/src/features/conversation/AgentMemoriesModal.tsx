@@ -22,6 +22,7 @@ interface AgentMemoriesModalProps {
 const LIMIT_TEXT = {
   agent: "memory.limitAgent",
   channel: "memory.limitChannel",
+  user: "memory.limitUser",
 } as const satisfies Record<MemoriesPort["ownerNoun"], keyof AppMessages>;
 
 export function AgentMemoriesModal(props: AgentMemoriesModalProps) {

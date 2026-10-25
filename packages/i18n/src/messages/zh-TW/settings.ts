@@ -66,6 +66,17 @@ export const messages = {
   "settings.showAgentSteps.description": "在這台裝置和瀏覽器上，預設展開每一輪的思考、工具步驟和記憶變更。",
   "settings.busyMessage.title": "助理工作時的訊息處理方式",
   "settings.busyMessage.description": "新訊息會併入助理當前的工作，而不是進入佇列。支援 ChatGPT 和 Claude。",
+  // The Memory tab: what every agent knows about the user. Local to this computer.
+  "settings.memory.about.section": "關於你",
+  "settings.memory.about.title": "關於你的記憶",
+  "settings.memory.about.description": "每個助理都知道的關於你的事，例如你的名字、偏好、身邊的人和日常習慣。",
+  "settings.memory.about.count": { one: "已儲存 {count} 條。", other: "已儲存 {count} 條。" },
+  "settings.memory.about.manage": "管理",
+  "settings.memory.ownerLabel": "你",
+  "settings.memory.capture.title": "在脈絡遺失前保留重點",
+  "settings.memory.capture.description":
+    "助理開始新工作階段時，它的模型會讀取舊工作階段的結尾，並把長期有用的事實存成可搜尋的記憶。這會使用該助理的模型。",
+  "settings.memory.capture.saveFailed": "無法儲存記憶設定。",
   // The Agents tab: the defaults of the agents on this computer.
   "settings.agentDefaults.title": "預設值",
   "settings.agentDefaults.description": "助理會遵循這些預設值，除非你為某個助理單獨更改。",
@@ -143,6 +154,8 @@ export const messages = {
   "settings.tab.general.description": "控制 OpenBot 在這台電腦上的行為。",
   "settings.tab.agents.title": "助理",
   "settings.tab.agents.description": "選擇這台電腦上的助理在你未單獨設定時可以做什麼。",
+  "settings.tab.memory.title": "記憶",
+  "settings.tab.memory.description": "選擇每個助理要記住的關於你的事。記憶只會保存在這台電腦上。",
   "settings.tab.notifications.title": "通知",
   "settings.tab.notifications.description": "選擇 OpenBot 提醒你的方式。",
   "settings.tab.voice.title": "語音",

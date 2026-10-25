@@ -89,6 +89,7 @@ import {
   decodeHostProviderAccountsFromMain,
   decodeMemories,
   decodeMemory,
+  decodeMemoryCapturePreference,
   decodeMemorySelection,
   decodeOptionalMemorySelection,
   decodeProviderApiKeyState,
@@ -104,6 +105,9 @@ import {
   decodeSidebarLayout,
   decodeSideQuestionAnswer,
   decodeTables,
+  decodeUserMemories,
+  decodeUserMemory,
+  decodeUserMemorySelection,
 } from "./agent-decoding";
 import { decodeScopedAgentEvent } from "./agent-event-decoding";
 import {
@@ -860,6 +864,17 @@ const openbotApi: OpenBotDesktopApi = {
     openCheckout: decodeVoid,
     setUsers: decodeLicenseState,
     setRenewal: decodeLicenseState,
+  }),
+  userMemories: bridgeGroup(IPC_ENDPOINTS.userMemories, {
+    list: decodeUserMemories,
+    getSelection: decodeUserMemorySelection,
+    setInclusion: decodeUserMemorySelection,
+    create: decodeUserMemory,
+    update: decodeUserMemory,
+    delete: decodeVoid,
+    clear: decodeVoid,
+    getCapture: decodeMemoryCapturePreference,
+    setCapture: decodeMemoryCapturePreference,
   }),
   hostedServers: bridgeGroup(IPC_ENDPOINTS.hostedServers, {
     lifecycle: decodeVoid,
