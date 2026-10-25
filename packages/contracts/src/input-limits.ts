@@ -31,6 +31,9 @@ export const INPUT_LIMITS = {
   // The facts of one messaging connection. Like a channel packet, every external message pays for the
   // whole block, so the cap matches the channel one.
   messagingMemories: 32,
+  // The facts about the user that every agent shares. Only the essential ones go into each prompt, within
+  // their own budget, so the cap can be higher than one agent's default.
+  userMemories: 128,
   agentMemoryText: 500,
   agentRoutines: 64,
   routineName: 80,

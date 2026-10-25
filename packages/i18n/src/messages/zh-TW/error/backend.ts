@@ -89,6 +89,7 @@ export const messages = {
   "error.backend.channelRoutineLimit": "一個頻道最多可有 {limit} 個自動化任務。",
   "error.backend.agentRoutineLimit": "一個助理最多可有 {limit} 個自動化任務。",
   "error.backend.agentMemoryLimit": "一個助理最多可有 {limit} 條記憶。",
+  "error.backend.userMemoryLimit": "OpenBot 最多可保存 {limit} 條關於你的記憶。",
   "error.backend.agentMemoryLimitReached":
     "你已儲存 {saved} 條記憶，上限為 {limit} 條。要騰出空間，可用 memoryId 把兩條相關記憶合併更新為一條，再忘掉另一條；或忘掉一條已不再正確的記憶，然後重試。",
   "error.backend.agentMemoryLimitExceeded":

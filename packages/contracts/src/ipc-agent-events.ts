@@ -41,6 +41,8 @@ export type AgentEvent =
   | { type: "usage-changed"; usage: AccountUsage }
   | { type: "agents-changed"; agents: ClientAgentSummary[] }
   | { type: "memories-changed"; agentId: string }
+  /** The user memories that every agent shares changed. Local only: a team peer never receives it. */
+  | { type: "user-memories-changed" }
   | { type: "routines-changed"; agentId: string }
   | { type: "skills-changed"; agentId: string }
   /** The routine canvas of this agent changed, so the views showing it read it again. */
@@ -167,6 +169,8 @@ export function isAgentEvent(value: unknown): value is AgentEvent {
         value.agents.length <= INPUT_LIMITS.agents &&
         value.agents.every(isClientAgentSummary)
       );
+    case "user-memories-changed":
+      return true;
     case "memories-changed":
       return isString(value.agentId) && value.agentId.length > 0 && value.agentId.length <= INPUT_LIMITS.identifier;
     case "routines-changed":

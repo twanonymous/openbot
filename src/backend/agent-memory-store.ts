@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { AGENT_MEMORY_CONTEXT_BUDGET_BYTES, essentialMemoryBytes } from "@openbot/contracts/agent-memory-context";
+import {
+  AGENT_MEMORY_CONTEXT_BUDGET_BYTES,
+  type EssentialMemoryTag,
+  essentialMemoryBytes,
+} from "@openbot/contracts/agent-memory-context";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type {
   AgentMemory,
@@ -58,10 +62,34 @@ function agentMemoryTables(limit: () => number): MemoryTables {
   };
 }
 
-/** Owns saved agent memories, their selection, and local recall. Channel memories remain separate. */
-export class AgentMemoryStore extends MemoryStore {
-  constructor(database: OpenBotDatabase, limit: () => number = () => INPUT_LIMITS.agentMemories) {
-    super(database, agentMemoryTables(limit));
+/** The selection table, search index and prompt budget beside one owner's memory table. */
+export interface MemorySelectionTables {
+  selections: "agent_memory_selections" | "user_memory_selections";
+  search: "agent_memory_search" | "user_memory_search";
+  budgetBytes: number;
+  tag: EssentialMemoryTag;
+}
+
+/**
+ * Owns saved memories with a selection (essential or searchable), and their local recall. An agent's
+ * memories and the user memories that every agent shares differ only in their tables and budget.
+ * Channel memories remain separate.
+ */
+export class SelectableMemoryStore extends MemoryStore {
+  readonly #selection: MemorySelectionTables;
+
+  constructor(database: OpenBotDatabase, tables: MemoryTables, selection: MemorySelectionTables) {
+    super(database, tables);
+    this.#selection = selection;
+  }
+
+  get budgetBytes(): number {
+    return this.#selection.budgetBytes;
+  }
+
+  /** The bytes of these memories in the essential-memory block of this owner. */
+  essentialBytes(memories: Parameters<typeof essentialMemoryBytes>[0]): number {
+    return essentialMemoryBytes(memories, this.#selection.tag);
   }
 
   override list(agentId: string): AgentMemory[] {
@@ -86,10 +114,10 @@ export class AgentMemoryStore extends MemoryStore {
         const selection = source.find((entry) => entry.memoryId === originals[index]?.id);
         if (selection)
           this.database.connection
-            .prepare("UPDATE agent_memory_selections SET inclusion = ?, user_controlled = ? WHERE memory_id = ?")
+            .prepare(`UPDATE ${this.#selection.selections} SET inclusion = ?, user_controlled = ? WHERE memory_id = ?`)
             .run(selection.inclusion, Number(selection.userControlled), memory.id);
       }
-      this.#assertBudget(targetAgentId);
+      this.assertBudget(targetAgentId);
       return copied.map((memory) => ({ ...memory, agentId: targetAgentId }));
     });
   }
@@ -114,7 +142,7 @@ export class AgentMemoryStore extends MemoryStore {
     // The wrapper writes no event, so dispatch keeps no receipt of it, and no memory text stays after
     // forget/clear removes the memory's own receipts.
     const output: { value?: { result: T } } = {};
-    this.database.dispatch(`agent-memory:batch:${randomUUID()}`, [], () => {
+    this.database.dispatch(`${this.tables.aggregateType}:batch:${randomUUID()}`, [], () => {
       output.value = { result: operation() };
       return null;
     });
@@ -126,8 +154,8 @@ export class AgentMemoryStore extends MemoryStore {
     return databaseRows(
       this.database.connection
         .prepare(
-          `SELECT s.memory_id, s.inclusion, s.user_controlled, s.revision FROM agent_memory_selections s
-       JOIN projection_agent_memories m ON m.memory_id = s.memory_id WHERE m.agent_id = ? ORDER BY s.memory_id`,
+          `SELECT s.memory_id, s.inclusion, s.user_controlled, s.revision FROM ${this.#selection.selections} s
+       JOIN ${this.tables.table} m ON m.memory_id = s.memory_id WHERE m.${this.tables.ownerColumn} = ? ORDER BY s.memory_id`,
         )
         .all(agentId),
     ).map((row) => {
@@ -153,8 +181,8 @@ export class AgentMemoryStore extends MemoryStore {
     );
     return {
       selections,
-      usedBytes: essentialMemoryBytes(this.list(agentId).filter((memory) => essentialIds.has(memory.id))),
-      budgetBytes: AGENT_MEMORY_CONTEXT_BUDGET_BYTES,
+      usedBytes: this.essentialBytes(this.list(agentId).filter((memory) => essentialIds.has(memory.id))),
+      budgetBytes: this.#selection.budgetBytes,
     };
   }
 
@@ -201,8 +229,8 @@ export class AgentMemoryStore extends MemoryStore {
           .map((entry) => entry.memoryId),
       );
       if (
-        essentialMemoryBytes(this.list(agentId).filter((memory) => essentialIds.has(memory.id))) >
-        AGENT_MEMORY_CONTEXT_BUDGET_BYTES
+        this.essentialBytes(this.list(agentId).filter((memory) => essentialIds.has(memory.id))) >
+        this.#selection.budgetBytes
       ) {
         throw new AgentMemorySelectionError({
           code: "budget",
@@ -212,18 +240,11 @@ export class AgentMemoryStore extends MemoryStore {
       for (const selection of updates) {
         this.database.connection
           .prepare(
-            "UPDATE agent_memory_selections SET inclusion = ?, user_controlled = ?, revision = ? WHERE memory_id = ?",
+            `UPDATE ${this.#selection.selections} SET inclusion = ?, user_controlled = ?, revision = ? WHERE memory_id = ?`,
           )
           .run(selection.inclusion, Number(selection.userControlled), selection.revision, selection.memoryId);
       }
       return this.selectionState(agentId);
-    });
-  }
-
-  initializeSelection(agentId: string): void {
-    this.withMemoryTransaction(() => {
-      initializeAgentMemorySelection(this.database.connection, agentId);
-      this.#assertBudget(agentId);
     });
   }
 
@@ -233,12 +254,13 @@ export class AgentMemoryStore extends MemoryStore {
       throw new AgentMemorySelectionError({ code: "query", message: sourceText("error.backend.memorySearchQuery") });
     }
     const expression = [...new Set(terms)].map((term) => `"${term}"`).join(" OR ");
+    const search = this.#selection.search;
     const ids = databaseRows(
       this.database.connection
         .prepare(
-          `SELECT m.memory_id FROM agent_memory_search JOIN projection_agent_memories m ON m.rowid = agent_memory_search.rowid
-       WHERE agent_memory_search MATCH ? AND m.agent_id = ?
-       ORDER BY bm25(agent_memory_search), m.updated_at DESC, m.memory_id LIMIT ?`,
+          `SELECT m.memory_id FROM ${search} JOIN ${this.tables.table} m ON m.rowid = ${search}.rowid
+       WHERE ${search} MATCH ? AND m.${this.tables.ownerColumn} = ?
+       ORDER BY bm25(${search}), m.updated_at DESC, m.memory_id LIMIT ?`,
         )
         .all(expression, agentId, limit + 1),
     ).map((row) => requiredStringColumn(row, "memory_id"));
@@ -261,7 +283,7 @@ export class AgentMemoryStore extends MemoryStore {
     const ids = databaseRows(
       this.database.connection
         .prepare(
-          `SELECT memory_id FROM projection_agent_memories WHERE agent_id = ? AND (? IS NULL OR memory_id > ?)
+          `SELECT memory_id FROM ${this.tables.table} WHERE ${this.tables.ownerColumn} = ? AND (? IS NULL OR memory_id > ?)
        ORDER BY memory_id LIMIT 26`,
         )
         .all(agentId, after, after),
@@ -302,7 +324,7 @@ export class AgentMemoryStore extends MemoryStore {
           .map((memory) =>
             memory.id === input.memoryId ? { ...memory, text: input.text.trim(), origin: input.origin } : memory,
           );
-        if (essentialMemoryBytes(proposed) > AGENT_MEMORY_CONTEXT_BUDGET_BYTES) {
+        if (this.essentialBytes(proposed) > this.#selection.budgetBytes) {
           throw new AgentMemorySelectionError({
             code: "budget",
             message: sourceText("error.backend.memoryEssentialBudget"),
@@ -313,11 +335,11 @@ export class AgentMemoryStore extends MemoryStore {
       if (mergeSelection) {
         this.database.connection
           .prepare(
-            `UPDATE agent_memory_selections SET inclusion = ?, user_controlled = ?, revision = revision + 1
+            `UPDATE ${this.#selection.selections} SET inclusion = ?, user_controlled = ?, revision = revision + 1
            WHERE memory_id = ?`,
           )
           .run(mergeSelection.inclusion, Number(mergeSelection.userControlled), memory.id);
-        this.#assertBudget(agentId);
+        this.assertBudget(agentId);
       }
       return memory;
     });
@@ -339,8 +361,8 @@ export class AgentMemoryStore extends MemoryStore {
     return { ...target, inclusion: source.inclusion === "essential" ? "essential" : target.inclusion };
   }
 
-  #assertBudget(agentId: string): void {
-    if (this.selectionState(agentId).usedBytes > AGENT_MEMORY_CONTEXT_BUDGET_BYTES) {
+  protected assertBudget(agentId: string): void {
+    if (this.selectionState(agentId).usedBytes > this.#selection.budgetBytes) {
       throw new AgentMemorySelectionError({
         code: "budget",
         message: sourceText("error.backend.memoryEssentialBudget"),
@@ -359,5 +381,24 @@ export class AgentMemoryStore extends MemoryStore {
       userControlled: selection.userControlled,
       revision: selection.revision,
     };
+  }
+}
+
+/** An agent's own memories. */
+export class AgentMemoryStore extends SelectableMemoryStore {
+  constructor(database: OpenBotDatabase, limit: () => number = () => INPUT_LIMITS.agentMemories) {
+    super(database, agentMemoryTables(limit), {
+      selections: "agent_memory_selections",
+      search: "agent_memory_search",
+      budgetBytes: AGENT_MEMORY_CONTEXT_BUDGET_BYTES,
+      tag: "agent_memories",
+    });
+  }
+
+  initializeSelection(agentId: string): void {
+    this.withMemoryTransaction(() => {
+      initializeAgentMemorySelection(this.database.connection, agentId);
+      this.assertBudget(agentId);
+    });
   }
 }

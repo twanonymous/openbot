@@ -1,4 +1,4 @@
-import { AGENT_MEMORY_CONTEXT_BUDGET_BYTES, essentialMemoryBytes } from "@openbot/contracts/agent-memory-context";
+import { AGENT_MEMORY_CONTEXT_BUDGET_BYTES } from "@openbot/contracts/agent-memory-context";
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
 import type {
   AgentEvent,
@@ -18,19 +18,31 @@ import {
   type AgentMemorySearchResult,
   AgentMemorySelectionError,
   AgentMemoryStore,
+  type SelectableMemoryStore,
 } from "../agent-memory-store";
 import type { AgentStore } from "../agent-store";
 import { normalizeMemoryText } from "../memory-store";
 import { type DynamicToolCallParams, isRecord } from "../protocol";
+import { USER_MEMORY_OWNER } from "../user-memory-schema";
+import { UserMemoryStore } from "../user-memory-store";
 import type { ConversationRuntime } from "./conversation-runtime";
 import { listMemoriesInput, searchMemoriesInput, setMemoryInclusionInput } from "./memory-tool-inputs";
 import { type OpenBotToolResponse, openBotToolFailure, openBotToolResult } from "./routine-tools";
 
+/** Whose memory a tool call addresses: the calling agent's own, or the user memories that every agent shares. */
+export type MemoryScope = "agent" | "user";
+
+/**
+ * Every staged mutation names its scope and owner: the agent itself, or `USER_MEMORY_OWNER`. The
+ * sender is the agent whose turn staged it, which is where the chat shows the committed change.
+ */
 type PendingMemoryMutation =
   | {
       callId: string;
       type: "selection";
-      agentId: string;
+      scope: MemoryScope;
+      ownerId: string;
+      senderAgentId: string;
       epoch: number;
       memoryId?: never;
       changes: SetAgentMemoryInclusionInput["changes"];
@@ -38,7 +50,9 @@ type PendingMemoryMutation =
   | {
       callId: string;
       type: "remember";
-      agentId: string;
+      scope: MemoryScope;
+      ownerId: string;
+      senderAgentId: string;
       epoch: number;
       memoryId?: string;
       text: string;
@@ -51,20 +65,29 @@ type PendingMemoryMutation =
   | {
       callId: string;
       type: "forget";
-      agentId: string;
+      scope: MemoryScope;
+      ownerId: string;
+      senderAgentId: string;
       epoch: number;
       memoryId: string;
       expectedUpdatedAt: string;
       expectedSelectionRevision: number;
     };
 
+/** What memories need from the conversation runtime. A test passes a fake. */
+export type MemoryConversation = Pick<ConversationRuntime, "unloadAgentThreads" | "publicThreadId"> & {
+  requireKnownAgent(agentId: string): { id: string };
+};
+
 export interface AgentMemoriesOptions {
-  store: AgentStore;
-  conversation: ConversationRuntime;
+  store: Pick<AgentStore, "database">;
+  conversation: MemoryConversation;
   emit(event: AgentEvent): void;
   emitError(code: string, error: unknown, agentId?: string): void;
   /** How many memories one agent can hold: the app setting. Omitted, the default cap. */
   limit?: () => number;
+  /** Every agent of this computer, so a user-memory change can unload all of their sessions. */
+  listAgentIds?: () => string[];
 }
 
 /**
@@ -78,10 +101,12 @@ export interface AgentMemoriesOptions {
  * than resurrecting a memory the user just deleted.
  */
 export class AgentMemories {
-  readonly #conversation: ConversationRuntime;
+  readonly #conversation: MemoryConversation;
   readonly #emit: (event: AgentEvent) => void;
   readonly #emitError: (code: string, error: unknown, agentId?: string) => void;
   readonly #memories: AgentMemoryStore;
+  readonly #userMemories: UserMemoryStore;
+  readonly #listAgentIds: () => string[];
   readonly #pending = new Map<string, PendingMemoryMutation[]>();
   readonly #epochs = new Map<string, number>();
 
@@ -90,6 +115,12 @@ export class AgentMemories {
     this.#emit = options.emit;
     this.#emitError = options.emitError;
     this.#memories = new AgentMemoryStore(options.store.database, options.limit);
+    this.#userMemories = new UserMemoryStore(options.store.database);
+    this.#listAgentIds = options.listAgentIds ?? (() => []);
+  }
+
+  #store(scope: MemoryScope): SelectableMemoryStore {
+    return scope === "user" ? this.#userMemories : this.#memories;
   }
 
   limit(): number {
@@ -107,13 +138,118 @@ export class AgentMemories {
   }
 
   essentialFor(agentId: string): AgentMemory[] {
+    return this.#withInclusion("agent", agentId, "essential");
+  }
+
+  #withInclusion(scope: MemoryScope, ownerId: string, inclusion: "essential" | "searchable"): AgentMemory[] {
+    const store = this.#store(scope);
     const ids = new Set(
-      this.#memories
-        .listSelections(agentId)
-        .filter((entry) => entry.inclusion === "essential")
+      store
+        .listSelections(ownerId)
+        .filter((entry) => entry.inclusion === inclusion)
         .map((entry) => entry.memoryId),
     );
-    return this.#memories.list(agentId).filter((memory) => ids.has(memory.id));
+    return store.list(ownerId).filter((memory) => ids.has(memory.id));
+  }
+
+  // The user memories: facts about the user that every agent shares. The settings page edits them, and
+  // a change unloads every agent's sessions, as an agent's own change unloads its own.
+
+  userLimit(): number {
+    return this.#userMemories.limit();
+  }
+
+  listUser(): AgentMemory[] {
+    return this.#userMemories.list(USER_MEMORY_OWNER);
+  }
+
+  essentialUser(): AgentMemory[] {
+    return this.#withInclusion("user", USER_MEMORY_OWNER, "essential");
+  }
+
+  /**
+   * Committed searchable (not essential) matches of a literal word search, best first: the memories
+   * that are not in the prompt already. A query with no word finds nothing.
+   */
+  recall(scope: MemoryScope, ownerId: string, query: string, limit: number): AgentMemory[] {
+    const store = this.#store(scope);
+    const essential = new Set(this.#withInclusion(scope, ownerId, "essential").map((memory) => memory.id));
+    try {
+      return store
+        .search(ownerId, query, Math.min(10, limit + essential.size))
+        .memories.filter((memory) => memory.inclusion === "searchable")
+        .slice(0, limit);
+    } catch (error) {
+      if (error instanceof AgentMemorySelectionError) return [];
+      throw error;
+    }
+  }
+
+  userSelectionState(): AgentMemorySelectionState {
+    return this.#userMemories.selectionState(USER_MEMORY_OWNER);
+  }
+
+  setUserInclusions(changes: SetAgentMemoryInclusionInput["changes"]): AgentMemorySelectionState {
+    const result = this.#userMemories.setInclusions(USER_MEMORY_OWNER, changes, "user");
+    this.userStateChanged();
+    return result;
+  }
+
+  createUser(text: string): AgentMemory {
+    const memory = this.#userMemories.createManual(USER_MEMORY_OWNER, text);
+    this.userStateChanged();
+    return memory;
+  }
+
+  updateUser(memoryId: string, text: string): AgentMemory {
+    const memory = this.#userMemories.updateManual(USER_MEMORY_OWNER, memoryId, text);
+    this.userStateChanged();
+    return memory;
+  }
+
+  deleteUser(memoryId: string): void {
+    if (!this.#userMemories.delete(USER_MEMORY_OWNER, memoryId))
+      throw new Error(sourceText("error.backend.memoryGone"));
+    this.userStateChanged();
+  }
+
+  clearUser(): void {
+    this.#epochs.set(epochKey("user", USER_MEMORY_OWNER), this.#epoch("user", USER_MEMORY_OWNER) + 1);
+    if (this.#userMemories.clear(USER_MEMORY_OWNER) > 0) this.userStateChanged();
+  }
+
+  /**
+   * Saves facts that OpenBot drew from a conversation before its context was lost, as automatic,
+   * searchable memories. A fact already saved, in either scope, is skipped, and a full owner saves no
+   * more. Answers how many it saved.
+   */
+  saveCaptured(agentId: string, facts: readonly { scope: MemoryScope; text: string }[], sourceTurnId: string): number {
+    let saved = 0;
+    const touched = new Set<MemoryScope>();
+    const known = new Set(
+      [...this.#memories.list(agentId), ...this.#userMemories.list(USER_MEMORY_OWNER)].map((memory) =>
+        normalizeMemoryText(memory.text),
+      ),
+    );
+    for (const fact of facts) {
+      const text = fact.text.trim();
+      if (!text || text.length > INPUT_LIMITS.agentMemoryText || known.has(normalizeMemoryText(text))) continue;
+      const ownerId = fact.scope === "user" ? USER_MEMORY_OWNER : agentId;
+      const store = this.#store(fact.scope);
+      if (store.count(ownerId) >= store.limit()) continue;
+      try {
+        if (!store.saveAutomatic({ agentId: ownerId, text, sourceTurnId })) continue;
+      } catch (error) {
+        this.#emitError("memory_capture_failed", error, agentId);
+        continue;
+      }
+      known.add(normalizeMemoryText(text));
+      touched.add(fact.scope);
+      saved += 1;
+    }
+    if (touched.has("agent")) this.stateChanged(agentId);
+    if (touched.has("user")) this.userStateChanged();
+    return saved;
   }
 
   selectionState(agentId: string): AgentMemorySelectionState {
@@ -158,7 +294,7 @@ export class AgentMemories {
 
   clear(agentId: string): void {
     this.#conversation.requireKnownAgent(agentId);
-    this.#epochs.set(agentId, this.#epoch(agentId) + 1);
+    this.#epochs.set(epochKey("agent", agentId), this.#epoch("agent", agentId) + 1);
     if (this.#memories.clear(agentId) > 0) this.stateChanged(agentId);
   }
 
@@ -186,20 +322,22 @@ export class AgentMemories {
     senderAgentId: string,
     redact: (value: string) => string,
   ): OpenBotToolResponse | null {
+    if (!MEMORY_TOOLS.has(params.tool)) return null;
+    const scope = toolScope(params.arguments);
+    if (!scope) return openBotToolFailure("scope must be agent or user.");
+    const store = this.#store(scope);
+    const ownerId = scope === "user" ? USER_MEMORY_OWNER : senderAgentId;
     if (params.tool === "search_memories") {
       const parsed = searchMemoriesInput.safeParse(params.arguments);
       if (!parsed.success) return openBotToolFailure(sourceText("error.backend.memorySearchQuery"));
-      const result = memoryRecallResult(
-        this.#memories.search(senderAgentId, parsed.data.query, parsed.data.limit),
-        redact,
-      );
+      const result = memoryRecallResult(store.search(ownerId, parsed.data.query, parsed.data.limit), redact);
       this.#emitRecallProgress(params, senderAgentId, result.count);
       return result.response;
     }
     if (params.tool === "list_memories") {
       const parsed = listMemoriesInput.safeParse(params.arguments);
       if (!parsed.success) return openBotToolFailure("after must be a memory ID or null.");
-      const result = memoryRecallResult(this.#memories.listPage(senderAgentId, parsed.data.after ?? null), redact);
+      const result = memoryRecallResult(store.listPage(ownerId, parsed.data.after ?? null), redact);
       this.#emitRecallProgress(params, senderAgentId, result.count);
       return result.response;
     }
@@ -207,11 +345,11 @@ export class AgentMemories {
       const parsed = setMemoryInclusionInput.safeParse(params.arguments);
       if (!parsed.success) return openBotToolFailure("Provide 1 to 25 memory selections with their current revisions.");
       const ids = new Set<string>();
-      const planned = this.#plannedContext(senderAgentId, params.turnId, params.callId);
+      const planned = this.#plannedContext(scope, ownerId, params.turnId, params.callId);
       const essentials = planned.essential;
       for (const change of parsed.data.changes) {
-        const selection = this.#memories.getSelection(senderAgentId, change.memoryId);
-        const memory = this.#memories.get(senderAgentId, change.memoryId);
+        const selection = store.getSelection(ownerId, change.memoryId);
+        const memory = store.get(ownerId, change.memoryId);
         if (!selection || !memory || selection.revision !== change.expectedRevision || ids.has(change.memoryId))
           return openBotToolFailure(sourceText("error.backend.memorySelectionConflict"));
         if (selection.userControlled)
@@ -220,13 +358,15 @@ export class AgentMemories {
         if (change.inclusion === "essential") essentials.set(memory.id, planned.all.get(memory.id) ?? memory);
         else essentials.delete(memory.id);
       }
-      if (essentialMemoryBytes([...essentials.values()]) > AGENT_MEMORY_CONTEXT_BUDGET_BYTES)
+      if (store.essentialBytes([...essentials.values()]) > store.budgetBytes)
         return openBotToolFailure(sourceText("error.backend.memoryEssentialBudget"));
       this.#stage(params.turnId, {
         callId: params.callId,
         type: "selection",
-        agentId: senderAgentId,
-        epoch: this.#epoch(senderAgentId),
+        scope,
+        ownerId,
+        senderAgentId,
+        epoch: this.#epoch(scope, ownerId),
         changes: parsed.data.changes,
       });
       return openBotToolResult({ status: "staged" });
@@ -248,13 +388,13 @@ export class AgentMemories {
       ) {
         return openBotToolFailure("memoryId is invalid.");
       }
-      const current = memoryId ? this.#memories.get(senderAgentId, memoryId) : null;
-      if (memoryId && !current) return openBotToolFailure("This memory does not belong to the current agent.");
-      const planned = this.#plannedContext(senderAgentId, params.turnId, params.callId);
+      const current = memoryId ? store.get(ownerId, memoryId) : null;
+      if (memoryId && !current) return openBotToolFailure(notInScope(scope));
+      const planned = this.#plannedContext(scope, ownerId, params.turnId, params.callId);
       const duplicateEntry = [...planned.all].find(([key, memory]) => key !== memoryId && memory.text === text);
       const duplicate = duplicateEntry?.[1];
-      const sourceSelection = current ? this.#memories.getSelection(senderAgentId, current.id) : null;
-      const duplicateSelection = duplicate ? this.#memories.getSelection(senderAgentId, duplicate.id) : null;
+      const sourceSelection = current ? store.getSelection(ownerId, current.id) : null;
+      const duplicateSelection = duplicate ? store.getSelection(ownerId, duplicate.id) : null;
       const selectedId = duplicate?.id ?? current?.id;
       const selectedKey = duplicateEntry?.[0] ?? current?.id;
       const selection = duplicateSelection ?? sourceSelection;
@@ -282,7 +422,7 @@ export class AgentMemories {
           text,
           origin: duplicate?.origin ?? ("automatic" as const),
         };
-        if (essentialMemoryBytes([...others, candidate]) > AGENT_MEMORY_CONTEXT_BUDGET_BYTES) {
+        if (store.essentialBytes([...others, candidate]) > store.budgetBytes) {
           if (current && sourceSelection?.inclusion === "essential")
             return openBotToolFailure(sourceText("error.backend.memoryEssentialBudget"));
           inclusion = "searchable";
@@ -291,9 +431,9 @@ export class AgentMemories {
       // A full agent hears it now, while it can still merge or forget in this turn. Staged anyway,
       // the save would fail at commit and the memory would be lost.
       if (!memoryId) {
-        const projected = this.#projectedMemories(senderAgentId, params.turnId, params.callId);
+        const projected = this.#projectedMemories(scope, ownerId, params.turnId, params.callId);
         const normalized = normalizeMemoryText(text);
-        const limit = this.#memories.limit();
+        const limit = store.limit();
         const saved = projected.size;
         if (saved >= limit && ![...projected.values()].some((memory) => memory.text === normalized)) {
           // Over the limit only when the user lowered it. The agent must not delete memories for that.
@@ -305,8 +445,10 @@ export class AgentMemories {
       this.#stage(params.turnId, {
         callId: params.callId,
         type: "remember",
-        agentId: senderAgentId,
-        epoch: this.#epoch(senderAgentId),
+        scope,
+        ownerId,
+        senderAgentId,
+        epoch: this.#epoch(scope, ownerId),
         ...(memoryId ? { memoryId } : {}),
         text,
         sourceTurnId: params.turnId,
@@ -335,16 +477,18 @@ export class AgentMemories {
       ) {
         return openBotToolFailure("memoryId is required.");
       }
-      const current = this.#memories.get(senderAgentId, args.memoryId);
-      if (!current) return openBotToolFailure("This memory does not belong to the current agent.");
-      const selection = this.#memories.getSelection(senderAgentId, current.id);
+      const current = store.get(ownerId, args.memoryId);
+      if (!current) return openBotToolFailure(notInScope(scope));
+      const selection = store.getSelection(ownerId, current.id);
       if (selection?.userControlled)
         return openBotToolFailure(sourceText("error.backend.memorySelectionUserControlled"));
       this.#stage(params.turnId, {
         callId: params.callId,
         type: "forget",
-        agentId: senderAgentId,
-        epoch: this.#epoch(senderAgentId),
+        scope,
+        ownerId,
+        senderAgentId,
+        epoch: this.#epoch(scope, ownerId),
         memoryId: current.id,
         expectedUpdatedAt: current.updatedAt,
         expectedSelectionRevision: selection?.revision ?? -1,
@@ -367,33 +511,33 @@ export class AgentMemories {
     if (status !== "completed" || pending.length === 0) return changes;
 
     const affectedAgents = new Set<string>();
+    let userChanged = false;
     const createdMemories = new Set<string>();
     const ownRevisions = new Map<string, Map<number, number>>();
-    const revisionAfterOwnChanges = (agentId: string, memoryId: string, revision: number): number => {
-      const changes = ownRevisions.get(`${agentId}:${memoryId}`);
+    const revisionAfterOwnChanges = (mutation: PendingMemoryMutation, memoryId: string, revision: number): number => {
+      const changes = ownRevisions.get(`${epochKey(mutation.scope, mutation.ownerId)}:${memoryId}`);
       let next = revision;
       while (changes?.has(next)) next = changes.get(next) ?? next;
       return next;
     };
     for (const mutation of pending) {
-      if (mutation.epoch !== this.#epoch(mutation.agentId)) continue;
-      const before = this.#storedState(mutation.agentId);
-      const previousSelections = this.#memories.listSelections(mutation.agentId);
+      if (mutation.epoch !== this.#epoch(mutation.scope, mutation.ownerId)) continue;
+      const store = this.#store(mutation.scope);
+      const before = this.#storedState(mutation);
+      const previousSelections = store.listSelections(mutation.ownerId);
       const previousMemory =
-        mutation.type === "selection" || !mutation.memoryId
-          ? null
-          : this.#memories.get(mutation.agentId, mutation.memoryId);
+        mutation.type === "selection" || !mutation.memoryId ? null : store.get(mutation.ownerId, mutation.memoryId);
       const previousIds =
         mutation.type === "remember" && !mutation.memoryId
-          ? new Set(this.#memories.list(mutation.agentId).map((memory) => memory.id))
+          ? new Set(store.list(mutation.ownerId).map((memory) => memory.id))
           : null;
       try {
         if (mutation.type === "selection")
-          this.#memories.setInclusions(
-            mutation.agentId,
+          store.setInclusions(
+            mutation.ownerId,
             mutation.changes.map((change) => ({
               ...change,
-              expectedRevision: revisionAfterOwnChanges(mutation.agentId, change.memoryId, change.expectedRevision),
+              expectedRevision: revisionAfterOwnChanges(mutation, change.memoryId, change.expectedRevision),
             })),
             "agent",
           );
@@ -406,7 +550,7 @@ export class AgentMemories {
                     duplicate: {
                       ...mutation.duplicate,
                       expectedRevision: revisionAfterOwnChanges(
-                        mutation.agentId,
+                        mutation,
                         mutation.duplicate.memoryId,
                         mutation.duplicate.expectedRevision,
                       ),
@@ -416,7 +560,7 @@ export class AgentMemories {
               ...(mutation.memoryId && mutation.expectedSelectionRevision !== undefined
                 ? {
                     expectedSelectionRevision: revisionAfterOwnChanges(
-                      mutation.agentId,
+                      mutation,
                       mutation.memoryId,
                       mutation.expectedSelectionRevision,
                     ),
@@ -426,34 +570,36 @@ export class AgentMemories {
             createdMemories,
           );
         else if (
-          !this.#memories.getSelection(mutation.agentId, mutation.memoryId)?.userControlled &&
-          this.#memories.getSelection(mutation.agentId, mutation.memoryId)?.revision ===
-            revisionAfterOwnChanges(mutation.agentId, mutation.memoryId, mutation.expectedSelectionRevision)
+          !store.getSelection(mutation.ownerId, mutation.memoryId)?.userControlled &&
+          store.getSelection(mutation.ownerId, mutation.memoryId)?.revision ===
+            revisionAfterOwnChanges(mutation, mutation.memoryId, mutation.expectedSelectionRevision)
         )
-          this.#memories.delete(mutation.agentId, mutation.memoryId, mutation.expectedUpdatedAt);
+          store.delete(mutation.ownerId, mutation.memoryId, mutation.expectedUpdatedAt);
       } catch (error) {
-        this.#emitError("memory_commit_failed", error, mutation.agentId);
+        this.#emitError("memory_commit_failed", error, mutation.senderAgentId);
         continue;
       }
-      for (const selection of this.#memories.listSelections(mutation.agentId)) {
+      for (const selection of store.listSelections(mutation.ownerId)) {
         const previous = previousSelections.find((entry) => entry.memoryId === selection.memoryId);
         if (!previous) {
           createdMemories.add(selection.memoryId);
           continue;
         }
         if (previous.revision === selection.revision) continue;
-        const key = `${mutation.agentId}:${selection.memoryId}`;
+        const key = `${epochKey(mutation.scope, mutation.ownerId)}:${selection.memoryId}`;
         const revisions = ownRevisions.get(key) ?? new Map<number, number>();
         revisions.set(previous.revision, selection.revision);
         ownRevisions.set(key, revisions);
       }
-      if (this.#storedState(mutation.agentId) === before) continue;
-      affectedAgents.add(mutation.agentId);
-      const committed = changes.get(mutation.agentId) ?? [];
+      if (this.#storedState(mutation) === before) continue;
+      if (mutation.scope === "user") userChanged = true;
+      else affectedAgents.add(mutation.ownerId);
+      const committed = changes.get(mutation.senderAgentId) ?? [];
       committed.push(...this.#committedChanges(mutation, previousMemory, previousIds));
-      changes.set(mutation.agentId, committed);
+      changes.set(mutation.senderAgentId, committed);
     }
     for (const agentId of affectedAgents) this.stateChanged(agentId);
+    if (userChanged) this.userStateChanged();
     return changes;
   }
 
@@ -464,31 +610,38 @@ export class AgentMemories {
     previousIds: ReadonlySet<string> | null,
   ): ConversationMemoryChange[] {
     if (mutation.type === "selection") return [];
+    const store = this.#store(mutation.scope);
     if (mutation.type === "forget") {
-      if (!previous || this.#memories.get(mutation.agentId, mutation.memoryId)) return [];
+      if (!previous || store.get(mutation.ownerId, mutation.memoryId)) return [];
       return [{ memoryId: previous.id, action: "forgotten", text: previous.text }];
     }
     if (previous) {
-      const current = this.#memories.get(mutation.agentId, previous.id);
+      const current = store.get(mutation.ownerId, previous.id);
       if (!current || current.text === previous.text) return [];
       return [{ memoryId: current.id, action: "updated", text: current.text, previousText: previous.text }];
     }
-    return this.#memories
-      .list(mutation.agentId)
+    return store
+      .list(mutation.ownerId)
       .filter((memory) => !previousIds?.has(memory.id))
       .map((memory) => ({ memoryId: memory.id, action: "saved" as const, text: memory.text }));
   }
 
   /** Reserve prompt space for this turn's staged changes, without making them visible to search. */
-  #plannedContext(agentId: string, turnId: string, exceptCallId: string) {
+  #plannedContext(scope: MemoryScope, agentId: string, turnId: string, exceptCallId: string) {
+    const store = this.#store(scope);
     const all = new Map<string, Pick<AgentMemory, "id" | "text" | "origin">>(
-      this.#memories.list(agentId).map((memory) => [memory.id, memory]),
+      store.list(agentId).map((memory) => [memory.id, memory]),
     );
     const selected = new Map<string, Pick<AgentMemory, "id" | "text" | "origin">>(
-      this.essentialFor(agentId).map((memory) => [memory.id, memory]),
+      this.#withInclusion(scope, agentId, "essential").map((memory) => [memory.id, memory]),
     );
     for (const pending of this.#pending.get(turnId) ?? []) {
-      if (pending.agentId !== agentId || pending.callId === exceptCallId || pending.epoch !== this.#epoch(agentId))
+      if (
+        pending.scope !== scope ||
+        pending.ownerId !== agentId ||
+        pending.callId === exceptCallId ||
+        pending.epoch !== this.#epoch(scope, agentId)
+      )
         continue;
       if (pending.type === "selection") {
         for (const change of pending.changes) {
@@ -519,19 +672,21 @@ export class AgentMemories {
     return { all, essential: selected };
   }
 
-  #storedState(agentId: string): string {
+  #storedState(mutation: PendingMemoryMutation): string {
+    const store = this.#store(mutation.scope);
     return JSON.stringify({
-      memories: this.#memories.list(agentId),
-      selection: this.#memories.listSelections(agentId),
+      memories: store.list(mutation.ownerId),
+      selection: store.listSelections(mutation.ownerId),
     });
   }
 
   #commitRemember(mutation: Extract<PendingMemoryMutation, { type: "remember" }>, createdMemories: Set<string>): void {
-    this.#memories.withMemoryTransaction(() => {
-      const duplicate = this.#memories
-        .list(mutation.agentId)
+    const store = this.#store(mutation.scope);
+    store.withMemoryTransaction(() => {
+      const duplicate = store
+        .list(mutation.ownerId)
         .find((memory) => memory.id !== mutation.memoryId && memory.text === mutation.text);
-      const duplicateSelection = duplicate ? this.#memories.getSelection(mutation.agentId, duplicate.id) : null;
+      const duplicateSelection = duplicate ? store.getSelection(mutation.ownerId, duplicate.id) : null;
       if (mutation.duplicate) {
         if (
           duplicate?.id !== mutation.duplicate.memoryId ||
@@ -541,8 +696,8 @@ export class AgentMemories {
       } else if (duplicate && !createdMemories.has(duplicate.id)) return;
       if (duplicateSelection?.userControlled && duplicateSelection.inclusion !== mutation.inclusion) return;
       if (mutation.memoryId) {
-        const current = this.#memories.get(mutation.agentId, mutation.memoryId);
-        const selection = this.#memories.getSelection(mutation.agentId, mutation.memoryId);
+        const current = store.get(mutation.ownerId, mutation.memoryId);
+        const selection = store.getSelection(mutation.ownerId, mutation.memoryId);
         if (
           !current ||
           !selection ||
@@ -552,27 +707,27 @@ export class AgentMemories {
           return;
         // An explicit move to searchable can make room for a longer corrected text.
         if (mutation.inclusion === "searchable" && selection.inclusion === "essential") {
-          this.#memories.setInclusions(
-            mutation.agentId,
+          store.setInclusions(
+            mutation.ownerId,
             [{ memoryId: current.id, inclusion: "searchable", expectedRevision: selection.revision }],
             "agent",
           );
         }
       }
-      const memory = this.#memories.saveAutomatic({
-        agentId: mutation.agentId,
+      const memory = store.saveAutomatic({
+        agentId: mutation.ownerId,
         ...(mutation.memoryId ? { memoryId: mutation.memoryId } : {}),
         text: mutation.text,
         sourceTurnId: mutation.sourceTurnId,
       });
       if (!memory) return;
-      const selection = this.#memories.getSelection(mutation.agentId, memory.id);
+      const selection = store.getSelection(mutation.ownerId, memory.id);
       if (!selection || selection.inclusion === mutation.inclusion || selection.userControlled) return;
-      const next = [...this.essentialFor(mutation.agentId), memory];
+      const next = [...this.#withInclusion(mutation.scope, mutation.ownerId, "essential"), memory];
       // Another turn may have used the remaining budget. Keep the saved text searchable.
-      if (mutation.inclusion === "essential" && essentialMemoryBytes(next) > AGENT_MEMORY_CONTEXT_BUDGET_BYTES) return;
-      this.#memories.setInclusions(
-        mutation.agentId,
+      if (mutation.inclusion === "essential" && store.essentialBytes(next) > store.budgetBytes) return;
+      store.setInclusions(
+        mutation.ownerId,
         [{ memoryId: memory.id, inclusion: mutation.inclusion, expectedRevision: selection.revision }],
         "agent",
       );
@@ -593,6 +748,12 @@ export class AgentMemories {
     this.#emit({ type: "memories-changed", agentId });
   }
 
+  /** A user-memory change invalidates the instructions of every agent, as `stateChanged` does for one. */
+  userStateChanged(): void {
+    for (const agentId of this.#listAgentIds()) this.#conversation.unloadAgentThreads(agentId);
+    this.#emit({ type: "user-memories-changed" });
+  }
+
   /**
    * The agent's memories, by id, once this turn's staged changes commit, replayed in staging order
    * as `finishTurn` applies them. A staged change that commit would skip, such as a forget of a
@@ -604,19 +765,23 @@ export class AgentMemories {
    * A null text never matches.
    */
   #projectedMemories(
+    scope: MemoryScope,
     agentId: string,
     turnId: string,
     exceptCallId: string,
   ): Map<string, { text: string | null; updatedAt: string | null }> {
-    const epoch = this.#epoch(agentId);
+    const epoch = this.#epoch(scope, agentId);
     const counts = (mutation: PendingMemoryMutation) =>
-      mutation.agentId === agentId && mutation.epoch === epoch && mutation.callId !== exceptCallId;
+      mutation.scope === scope &&
+      mutation.ownerId === agentId &&
+      mutation.epoch === epoch &&
+      mutation.callId !== exceptCallId;
     const others = [...this.#pending]
       .filter(([pendingTurnId]) => pendingTurnId !== turnId)
       .flatMap(([, pending]) => pending.filter(counts));
     const changedElsewhere = new Set(others.flatMap((mutation) => (mutation.memoryId ? [mutation.memoryId] : [])));
     const memories = new Map<string, { text: string | null; updatedAt: string | null }>(
-      this.#memories
+      this.#store(scope)
         .list(agentId)
         .map((memory) => [
           memory.id,
@@ -675,9 +840,26 @@ export class AgentMemories {
     this.#pending.set(turnId, pending);
   }
 
-  #epoch(agentId: string): number {
-    return this.#epochs.get(agentId) ?? 0;
+  #epoch(scope: MemoryScope, ownerId: string): number {
+    return this.#epochs.get(epochKey(scope, ownerId)) ?? 0;
   }
+}
+
+const MEMORY_TOOLS = new Set(["search_memories", "list_memories", "set_memory_inclusion", "remember", "forget_memory"]);
+
+function epochKey(scope: MemoryScope, ownerId: string): string {
+  return `${scope}:${ownerId}`;
+}
+
+/** The optional `scope` argument of a memory tool. Omitted, the agent's own memories. Null when invalid. */
+function toolScope(args: unknown): MemoryScope | null {
+  const scope = isRecord(args) ? args.scope : undefined;
+  if (scope === undefined) return "agent";
+  return scope === "agent" || scope === "user" ? scope : null;
+}
+
+function notInScope(scope: MemoryScope) {
+  return scope === "user" ? "This memory is not a user memory." : "This memory does not belong to the current agent.";
 }
 
 /** Redaction can expand text, so bound the final provider payload as well as the store result. */

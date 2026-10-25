@@ -18,10 +18,10 @@ import type { OpenBotDatabase } from "./openbot-database";
  */
 export interface MemoryTables {
   table: string;
-  ownerColumn: "agent_id" | "channel_id" | "connection_id";
+  ownerColumn: "agent_id" | "channel_id" | "connection_id" | "owner_id";
   /** The owner's key in event payloads. */
-  ownerKey: "agentId" | "channelId" | "connectionId";
-  aggregateType: "agent-memory" | "channel-memory" | "messaging-memory";
+  ownerKey: "agentId" | "channelId" | "connectionId" | "ownerId";
+  aggregateType: "agent-memory" | "channel-memory" | "messaging-memory" | "user-memory";
   /** Read at each save, because the agent cap is an app setting the user can change. */
   limit: () => number;
   limitMessage: (limit: number) => string;

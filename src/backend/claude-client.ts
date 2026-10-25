@@ -2051,14 +2051,28 @@ function readMemoryContext(params: unknown): MemoryContext | null {
   const context = isRecord(params) ? params.memoryContext : undefined;
   if (!isRecord(context) || !Array.isArray(context.memories)) return null;
   if (!isNumber(context.storedCount) || !isNumber(context.limit)) return null;
-  const memories = context.memories.filter(
+  const user = isRecord(context.user) ? context.user : {};
+  return {
+    memories: readContextMemories(context.memories),
+    storedCount: context.storedCount,
+    limit: context.limit,
+    user: {
+      memories: readContextMemories(user.memories),
+      storedCount: isNumber(user.storedCount) ? user.storedCount : 0,
+      limit: isNumber(user.limit) ? user.limit : 0,
+    },
+  };
+}
+
+function readContextMemories(value: unknown): MemoryContext["memories"] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
     (memory): memory is MemoryContext["memories"][number] =>
       isRecord(memory) &&
       isString(memory.id) &&
       isString(memory.text) &&
       isOneOf(["automatic", "manual"] as const, memory.origin),
   );
-  return { memories, storedCount: context.storedCount, limit: context.limit };
 }
 
 function readSectionTeammates(value: unknown): SectionTeammates | null {

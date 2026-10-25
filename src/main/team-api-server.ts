@@ -1173,6 +1173,8 @@ export class TeamApiServer {
   }
 
   #broadcastAgentEventToClients(broadcast: AgentEvent, audience: ConversationEventAudience = "all"): void {
+    // The user memories stay on this computer: no Team API version describes them.
+    if (broadcast.type === "user-memories-changed") return;
     const filteredConversationPayloads = new Map<string, string>();
     // The roles give each connection of one member the same agents: read them once for each member.
     const access = new Map<string, { member: AccessMember; blocked: Set<string>; key: string }>();

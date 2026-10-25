@@ -3,13 +3,23 @@ import { z } from "zod";
 
 const memoryId = z.string().min(1).max(INPUT_LIMITS.identifier);
 
+/** Whose memories a tool addresses. Omitted, the agent's own. */
+export const memoryScope = z
+  .enum(["agent", "user"])
+  .optional()
+  .describe(
+    "agent (default): your own memories. user: facts about the user that every OpenBot agent shares, such as their name, preferences, people, and routines.",
+  );
+
 export const searchMemoriesInput = z.strictObject({
   query: z.string().trim().min(1).max(256),
   limit: z.number().int().min(1).max(10).optional(),
+  scope: memoryScope,
 });
 
 export const listMemoriesInput = z.strictObject({
   after: memoryId.nullable().optional(),
+  scope: memoryScope,
 });
 
 export const setMemoryInclusionInput = z.strictObject({
@@ -23,13 +33,14 @@ export const setMemoryInclusionInput = z.strictObject({
     )
     .min(1)
     .max(25),
+  scope: memoryScope,
 });
 
 export const MEMORY_RECALL_TOOL_DEFINITIONS = [
   {
     name: "search_memories",
     description:
-      "Search your saved memories when a past preference, decision, or fact can help with the current task. Returns committed entries and their selection revisions. Search terms are literal words, not query operators. No match means the fact was not found; do not invent it.",
+      "Search your saved memories, or with scope user the user memories that every agent shares, when a past preference, decision, or fact can help with the current task. Returns committed entries and their selection revisions. Search terms are literal words, not query operators. No match means the fact was not found; do not invent it.",
     shape: searchMemoriesInput.shape,
   },
   {

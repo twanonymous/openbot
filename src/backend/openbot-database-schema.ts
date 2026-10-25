@@ -18,6 +18,7 @@ import {
 } from "./messaging/messaging-schema";
 import { ROUTINE_FLOW_SCHEMA_SQL } from "./routine-flows/routine-flow-schema";
 import { ROUTINE_RESULT_SCHEMA_SQL } from "./routine-results/routine-result-schema";
+import { USER_MEMORY_SCHEMA_SQL } from "./user-memory-schema";
 import { WORKFLOW_SCHEMA_SQL } from "./workflows/workflow-schema";
 
 const BASELINE_SCHEMA_VERSION = 8;
@@ -602,7 +603,8 @@ const LATEST_SCHEMA_SQL =
   V43_THREAD_EVENT_TYPE_INDEX_SQL +
   MESSAGING_ALLOWED_ROLES_SCHEMA_SQL +
   BROWSER_PROFILE_SCHEMA_SQL +
-  WORKFLOW_SCHEMA_SQL;
+  WORKFLOW_SCHEMA_SQL +
+  USER_MEMORY_SCHEMA_SQL;
 
 /** The end of the thread message table with the migration 40 columns before its PRIMARY KEY constraint. */
 function withThreadMessageOrderColumns(tableEnd: string): string {
@@ -864,6 +866,12 @@ const MIGRATIONS: readonly OpenBotMigration[] = [
     // Only creates tables, so no foreign-key pause and no vacuum. No one has a workflow yet, and agents,
     // routines and routine flows stay as they were.
     up: (db) => db.exec(WORKFLOW_SCHEMA_SQL),
+  },
+  {
+    version: 47,
+    // Only creates tables, an index, a search index and triggers, so no foreign-key pause and no vacuum.
+    // No one has a user memory yet, and every agent keeps its own memories as they were.
+    up: (db) => db.exec(USER_MEMORY_SCHEMA_SQL),
   },
 ];
 

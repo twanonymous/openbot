@@ -12,7 +12,7 @@ import { interruptAgentToolSchema } from "./agent/agent-interrupt-tool";
 import { DATA_TOOL_DEFINITIONS } from "./agent/data-tools";
 import { HISTORY_TOOL_DEFINITIONS } from "./agent/history-tools";
 import { MCP_SERVER_TOOL_DEFINITIONS } from "./agent/mcp-tools";
-import { MEMORY_RECALL_TOOL_DEFINITIONS } from "./agent/memory-tool-inputs";
+import { MEMORY_RECALL_TOOL_DEFINITIONS, memoryScope } from "./agent/memory-tool-inputs";
 import {
   createAgentToolSchema,
   listModelsToolSchema,
@@ -558,18 +558,19 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
   {
     name: "remember",
     description:
-      "Stage one short, durable memory for this agent. Use memoryId to correct or consolidate an existing memory. New entries are searchable unless inclusion is essential. Essential requests that do not fit stay searchable. The change commits only if the current turn completes.",
+      "Stage one short, durable memory. scope agent (default) saves it for this agent only; scope user saves a stable fact about the user that every OpenBot agent shares. Never save secrets. Use memoryId to correct or consolidate an existing memory of the same scope. New entries are searchable unless inclusion is essential. Essential requests that do not fit stay searchable. The change commits only if the current turn completes.",
     shape: {
       text: z.string().min(1).max(INPUT_LIMITS.agentMemoryText),
       memoryId: z.string().optional(),
       inclusion: z.enum(["essential", "searchable"]).optional(),
+      scope: memoryScope,
     },
   },
   {
     name: "forget_memory",
     description:
       "Stage deletion of one saved memory when the user asks you to forget it, or when it is stale or merged into another memory and you need room under the memory limit. The change commits only if the current turn completes.",
-    shape: { memoryId: z.string().min(1) },
+    shape: { memoryId: z.string().min(1), scope: memoryScope },
   },
   {
     name: "ask_user",

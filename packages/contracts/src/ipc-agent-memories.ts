@@ -144,7 +144,8 @@ export function isAgentMemorySelection(value: unknown): value is AgentMemorySele
   );
 }
 
-export function isAgentMemorySelectionState(value: unknown): value is AgentMemorySelectionState {
+/** `budgetBytes` is fixed per owner: 8192 for an agent, 3072 for the user memories that every agent shares. */
+export function isAgentMemorySelectionState(value: unknown, budgetBytes = 8192): value is AgentMemorySelectionState {
   return (
     isDynamicRecord(value) &&
     Array.isArray(value.selections) &&
@@ -153,7 +154,7 @@ export function isAgentMemorySelectionState(value: unknown): value is AgentMemor
     typeof value.usedBytes === "number" &&
     Number.isSafeInteger(value.usedBytes) &&
     value.usedBytes >= 0 &&
-    value.budgetBytes === 8192 &&
+    value.budgetBytes === budgetBytes &&
     value.usedBytes <= value.budgetBytes
   );
 }
