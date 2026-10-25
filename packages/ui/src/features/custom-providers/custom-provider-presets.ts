@@ -4,14 +4,22 @@
 import { DEFAULT_MODEL_SERVERS, type DefaultModelServerId, detectedModelServerKey } from "@openbot/contracts/ipc";
 import type { DetectedProvider, ProviderDetection } from "./detected-providers";
 
-export type CustomProviderPresetId = "ollama" | "lmstudio" | "openai-compatible" | "acp";
+export type CustomProviderPresetId = "ollama" | "lmstudio" | "magpie" | "openai-compatible" | "acp";
 
 /** What the host found at a local server's default address. */
 export type LocalServerProbe = { status: "checking" } | { status: "running"; models: number };
 
+/**
+ * The scan row of a local server. Magpie can run on another port (its own settings file names it), so
+ * a Magpie row is also matched by its suggested id.
+ */
 function foundServer(detection: ProviderDetection | undefined, id: DefaultModelServerId) {
   const key = detectedModelServerKey(DEFAULT_MODEL_SERVERS[id].baseUrl);
-  return detection?.found.find((row) => row.kind === "models" && row.key === key);
+  const rows = detection?.found ?? [];
+  return (
+    rows.find((row) => row.kind === "models" && row.key === key) ??
+    (id === "magpie" ? rows.find((row) => row.kind === "models" && row.id === "magpie") : undefined)
+  );
 }
 
 /**
@@ -22,7 +30,7 @@ export function localServerProbes(
   detection: ProviderDetection | undefined,
 ): Partial<Record<DefaultModelServerId, LocalServerProbe>> {
   const probes: Partial<Record<DefaultModelServerId, LocalServerProbe>> = {};
-  for (const id of ["ollama", "lmstudio"] as const) {
+  for (const id of ["ollama", "lmstudio", "magpie"] as const) {
     const found = foundServer(detection, id);
     if (found?.kind === "models") probes[id] = { status: "running", models: found.models.length };
     else if (detection?.scanning) probes[id] = { status: "checking" };

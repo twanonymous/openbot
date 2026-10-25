@@ -103,6 +103,8 @@ export const messages = {
   "customProvider.preset.ollamaDescription": "127.0.0.1:11434 上的本地模型。",
   "customProvider.preset.lmstudio": "LM Studio",
   "customProvider.preset.lmstudioDescription": "127.0.0.1:1234 上的本地模型。",
+  "customProvider.preset.magpie": "Magpie",
+  "customProvider.preset.magpieDescription": "位於 127.0.0.1:3425 的本機 LLM 閘道。",
   "customProvider.preset.openaiCompatible": "相容 OpenAI 的端點",
   "customProvider.preset.openaiCompatibleDescription": "任何提供 OpenAI 聊天 API 的伺服器。",
   "customProvider.preset.acp": "自定義 ACP 助理",

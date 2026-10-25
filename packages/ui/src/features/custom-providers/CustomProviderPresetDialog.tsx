@@ -23,7 +23,7 @@ interface CustomProviderPresetDialogProps {
    * What the host found at each local server's default address. A missing entry shows no status,
    * so a host that does not probe shows the plain list.
    */
-  probes?: Partial<Record<"ollama" | "lmstudio", LocalServerProbe>>;
+  probes?: Partial<Record<"ollama" | "lmstudio" | "magpie", LocalServerProbe>>;
   onChoose: (preset: CustomProviderPresetId) => void;
   onCancel: () => void;
 }
@@ -105,6 +105,12 @@ export function CustomProviderPresetDialog(props: CustomProviderPresetDialogProp
       description: () => t("customProvider.preset.lmstudioDescription"),
     },
     {
+      id: "magpie",
+      icon: () => <HardDrive />,
+      title: () => t("customProvider.preset.magpie"),
+      description: () => t("customProvider.preset.magpieDescription"),
+    },
+    {
       id: "openai-compatible",
       icon: () => <Globe2 />,
       title: () => t("customProvider.preset.openaiCompatible"),
@@ -122,7 +128,7 @@ export function CustomProviderPresetDialog(props: CustomProviderPresetDialogProp
   ];
 
   const probe = (id: CustomProviderPresetId): LocalServerProbe | undefined =>
-    id === "ollama" || id === "lmstudio" ? props.probes?.[id] : undefined;
+    id === "ollama" || id === "lmstudio" || id === "magpie" ? props.probes?.[id] : undefined;
 
   return (
     <Dialog.Root open={props.open} onOpenChange={(open) => !open && props.onCancel()}>

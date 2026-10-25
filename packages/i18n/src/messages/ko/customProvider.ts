@@ -107,6 +107,8 @@ export const messages = {
   "customProvider.preset.ollamaDescription": "127.0.0.1:11434의 로컬 모델.",
   "customProvider.preset.lmstudio": "LM Studio",
   "customProvider.preset.lmstudioDescription": "127.0.0.1:1234의 로컬 모델.",
+  "customProvider.preset.magpie": "Magpie",
+  "customProvider.preset.magpieDescription": "127.0.0.1:3425의 로컬 LLM 게이트웨이.",
   "customProvider.preset.openaiCompatible": "OpenAI 호환 엔드포인트",
   "customProvider.preset.openaiCompatibleDescription": "OpenAI 채팅 API를 제공하는 모든 서버.",
   "customProvider.preset.acp": "사용자 지정 ACP 에이전트",

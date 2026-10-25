@@ -1,7 +1,8 @@
 // The local model server scan and the model list of one endpoint. Both run in main: see
 // `model-server-probe.ts`.
 //
-// A scan sends no key to any address. A model list for a saved endpoint uses the stored key and
+// A scan sends no stored key to any address. It sends only the public Magpie app key, and only to
+// the Magpie address. A model list for a saved endpoint uses the stored key and
 // headers only when the user leaves them blank and the address keeps the saved origin, so an edited
 // address never receives the old credentials.
 
@@ -17,6 +18,7 @@ import {
   customProviderEndpointKey,
   DEFAULT_MODEL_SERVERS,
   isNewCustomProviderId,
+  MAGPIE_API_KEY,
   sameCustomProviderOrigin,
 } from "@openbot/contracts/ipc";
 import { Context, Effect, Exit, Fiber, Layer, ManagedRuntime, Scope } from "effect";
@@ -33,12 +35,16 @@ interface KnownServer {
   id: string;
   name: string;
   baseUrl: string;
+  /** A public app key that the server expects, never a stored credential. */
+  apiKey?: string;
 }
 
 export interface ProviderDetectionDependencies {
   settings: { get(): ProviderDetectionSettings };
   customProviders: { configs(): readonly CustomProviderConfig[] };
   customAgents: { configs(): readonly { id: string }[] };
+  /** The Magpie base URL from its settings file. Without it the scan uses the default port. */
+  magpieBaseUrl?: () => Effect.Effect<string>;
   probe?: Context.Service.Shape<typeof ModelServerProbe>["probe"];
   scanAgents?: typeof scanAcpAgents;
 }
@@ -65,8 +71,14 @@ function suggestServerId(base: string, taken: ReadonlySet<string>): string {
   }
 }
 
-/** The servers to probe: the defaults, then the user's addresses, one row for each endpoint key. */
-function scanTargets(addresses: readonly string[]): KnownServer[] {
+/**
+ * The servers to probe: the defaults, then the user's addresses, one row for each endpoint key.
+ * Magpie is probed at the address its settings file names, with its app key.
+ */
+export function scanTargets(
+  addresses: readonly string[],
+  magpieBaseUrl: string = DEFAULT_MODEL_SERVERS.magpie.baseUrl,
+): KnownServer[] {
   const targets: KnownServer[] = [];
   const keys = new Set<string>();
   const add = (server: KnownServer) => {
@@ -75,7 +87,10 @@ function scanTargets(addresses: readonly string[]): KnownServer[] {
     keys.add(key);
     targets.push(server);
   };
-  for (const [id, server] of Object.entries(DEFAULT_MODEL_SERVERS)) add({ id, ...server });
+  for (const [id, server] of Object.entries(DEFAULT_MODEL_SERVERS)) {
+    if (id === "magpie") add({ id, name: server.name, baseUrl: magpieBaseUrl, apiKey: MAGPIE_API_KEY });
+    else add({ id, ...server });
+  }
   for (const address of addresses) {
     const baseUrl = address.trim();
     if (!baseUrl) continue;
@@ -117,11 +132,12 @@ class ProviderDiscovery extends Context.Service<
             Effect.gen(function* () {
               const current = dependencies.settings.get();
               if (!current.enabled) return [];
-              const targets = scanTargets(current.addresses);
+              const magpieBaseUrl = dependencies.magpieBaseUrl ? yield* dependencies.magpieBaseUrl() : undefined;
+              const targets = scanTargets(current.addresses, magpieBaseUrl);
               const results = yield* Effect.forEach(
                 targets,
                 (target) =>
-                  probe({ baseUrl: target.baseUrl, apiKey: null, headers: [] }, SCAN_TIMEOUT_MS).pipe(
+                  probe({ baseUrl: target.baseUrl, apiKey: target.apiKey ?? null, headers: [] }, SCAN_TIMEOUT_MS).pipe(
                     Effect.map((models) => ({ target, models })),
                     Effect.catch(() => Effect.succeed(null)),
                   ),

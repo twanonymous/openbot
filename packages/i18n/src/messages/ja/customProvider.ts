@@ -105,6 +105,8 @@ export const messages = {
   "customProvider.preset.ollamaDescription": "127.0.0.1:11434 のローカルモデル。",
   "customProvider.preset.lmstudio": "LM Studio",
   "customProvider.preset.lmstudioDescription": "127.0.0.1:1234 のローカルモデル。",
+  "customProvider.preset.magpie": "Magpie",
+  "customProvider.preset.magpieDescription": "127.0.0.1:3425 のローカル LLM ゲートウェイ。",
   "customProvider.preset.openaiCompatible": "OpenAI 互換のエンドポイント",
   "customProvider.preset.openaiCompatibleDescription": "OpenAI のチャット API を備えたサーバーなら何でも使えます。",
   "customProvider.preset.acp": "カスタム ACP エージェント",

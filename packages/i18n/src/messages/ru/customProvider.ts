@@ -105,6 +105,8 @@ export const messages = {
   "customProvider.preset.ollamaDescription": "Локальные модели на 127.0.0.1:11434.",
   "customProvider.preset.lmstudio": "LM Studio",
   "customProvider.preset.lmstudioDescription": "Локальные модели на 127.0.0.1:1234.",
+  "customProvider.preset.magpie": "Magpie",
+  "customProvider.preset.magpieDescription": "Локальный LLM-шлюз на 127.0.0.1:3425.",
   "customProvider.preset.openaiCompatible": "Эндпоинт, совместимый с OpenAI",
   "customProvider.preset.openaiCompatibleDescription": "Любой сервер с чат-API OpenAI.",
   "customProvider.preset.acp": "Свой агент ACP",

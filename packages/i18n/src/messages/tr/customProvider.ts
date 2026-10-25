@@ -110,6 +110,8 @@ export const messages = {
   "customProvider.preset.ollamaDescription": "127.0.0.1:11434 adresindeki yerel modeller.",
   "customProvider.preset.lmstudio": "LM Studio",
   "customProvider.preset.lmstudioDescription": "127.0.0.1:1234 adresindeki yerel modeller.",
+  "customProvider.preset.magpie": "Magpie",
+  "customProvider.preset.magpieDescription": "127.0.0.1:3425 adresindeki yerel LLM ağ geçidi.",
   "customProvider.preset.openaiCompatible": "OpenAI uyumlu uç nokta",
   "customProvider.preset.openaiCompatibleDescription": "OpenAI sohbet API'sine sahip herhangi bir sunucu.",
   "customProvider.preset.acp": "Özel ACP ajanı",
