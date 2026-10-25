@@ -64,6 +64,7 @@ import { computerUseIpcHandlers } from "./ipc/computer-use-handlers";
 import { customAgentIpcHandlers } from "./ipc/custom-agent-handlers";
 import { customProviderIpcHandlers } from "./ipc/custom-provider-handlers";
 import { registerIpcGroups } from "./ipc/define-ipc-group";
+import { delegationIpcHandlers } from "./ipc/delegation-handlers";
 import { dynamicIslandIpcHandlers } from "./ipc/dynamic-island-handlers";
 import { eventsIpcHandlers } from "./ipc/events-handlers";
 import { githubConnectorIpcHandlers } from "./ipc/github-connector-handlers";
@@ -569,6 +570,9 @@ function registerIpcHandlers({
   acpRegistry,
   providerDetection,
   providerDetectionSettings,
+  magpieGateway,
+  magpiePreference,
+  delegationTiers,
   marketplaceAgents,
   agentTemplates,
   agentImport,
@@ -659,7 +663,12 @@ function registerIpcHandlers({
     ...customProviderIpcHandlers(customProviderChanges),
     ...customAgentIpcHandlers(customAgentChanges),
     ...acpRegistryIpcHandlers(acpRegistry, remoteServers),
-    ...providerDetectionIpcHandlers({ detection: providerDetection, settings: providerDetectionSettings }),
+    ...providerDetectionIpcHandlers({
+      detection: providerDetection,
+      settings: providerDetectionSettings,
+      magpie: { gateway: magpieGateway, preference: magpiePreference },
+    }),
+    ...delegationIpcHandlers(delegationTiers),
     ...marketplaceAgentIpcHandlers({ marketplaceAgents }),
     ...agentTemplateIpcHandlers({
       agentTemplates,

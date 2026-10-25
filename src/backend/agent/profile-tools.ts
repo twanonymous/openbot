@@ -9,12 +9,23 @@ import {
   AVATAR_HUES,
   AVATAR_SEED_PATTERN,
   agentComputerUseEnabled,
+  DELEGATION_TIER_IDS,
   isAvatarHue,
   isProviderAccountId,
   type UpdateAgentInput,
   workspaceAccessEnforced,
 } from "@openbot/contracts/ipc";
 import { z } from "zod";
+
+/**
+ * A delegation tier in place of a provider and a model. The tier names the user's model for that
+ * difficulty; list_models shows the tiers that are set.
+ */
+const tierField = z
+  .enum(DELEGATION_TIER_IDS)
+  .describe(
+    "Delegation tier from list_models, in place of provider and model: fast for quick lookups and formatting, balanced for normal coding, deep for hard reasoning and architecture. Pick by how hard the task is. Do not combine with provider or model.",
+  );
 
 const profileFields = {
   name: z.string().trim().min(1).max(INPUT_LIMITS.agentName),
@@ -42,10 +53,11 @@ export const createAgentToolSchema = z
     avatarSeed: profileFields.avatarSeed.optional(),
     avatarHue: profileFields.avatarHue.optional(),
     initialMessage: z.string().trim().min(1).max(INPUT_LIMITS.messageText),
+    tier: tierField.optional(),
     provider: z
       .enum(AGENT_PROVIDERS)
       .describe(
-        "Provider for the new agent. Omit provider and model to give it your own provider and model. See list_models.",
+        "Provider for the new agent. Omit provider, model and tier to give it your own provider and model. See list_models.",
       )
       .optional(),
     model: z
@@ -89,6 +101,7 @@ export const updateProfileToolSchema = z
         "Local PNG, JPEG, or WebP file, up to 512 KB. Resize or compress a copy with your available tools first if needed. Use an absolute path or a path relative to your workspace. Do not combine with avatarSeed or avatarHue.",
       )
       .optional(),
+    tier: tierField.optional(),
     provider: z
       .enum(AGENT_PROVIDERS)
       .describe("New provider for the agent. Pass a model with it, or omit the model to use the provider's default.")
@@ -159,6 +172,7 @@ export const updateAgentsToolSchema = z
       .max(UPDATE_AGENTS_LIMIT)
       .refine((ids) => new Set(ids).size === ids.length, "Pass each agent id once.")
       .describe("Stable ids from list_agents of the agents to change."),
+    tier: updateProfileFields.tier,
     provider: updateProfileFields.provider,
     model: updateProfileFields.model,
     reasoningEffort: updateProfileFields.reasoningEffort,

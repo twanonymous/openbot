@@ -165,6 +165,32 @@ export const messages = defineMessages("provider", {
   "provider.deepseekKey.description":
     "Save a DeepSeek API key on this computer to use the DeepSeek models. OpenBot runs them in the Pi CLI that it downloads.",
   "provider.deepseekKey.label": "DeepSeek API key",
+  "provider.tiers.title": "Delegation tiers",
+  "provider.tiers.description":
+    "The models that a lead agent gives the agents it creates, by how hard the task is. A tier that is not set is not offered.",
+  "provider.tiers.summary": { one: "{count} tier set", other: "{count} tiers set" },
+  "provider.tiers.summaryNone": "No tier set",
+  "provider.tiers.fast": "Fast",
+  "provider.tiers.fastHint": "Quick lookups, formatting and small edits.",
+  "provider.tiers.balanced": "Balanced",
+  "provider.tiers.balancedHint": "Normal coding, reviews and research.",
+  "provider.tiers.deep": "Deep",
+  "provider.tiers.deepHint": "Hard reasoning, architecture and difficult bugs.",
+  "provider.tiers.provider": "Provider",
+  "provider.tiers.model": "Model",
+  "provider.tiers.effort": "Effort",
+  "provider.tiers.providerLabel": "Provider for the {tier} tier",
+  "provider.tiers.modelLabel": "Model for the {tier} tier",
+  "provider.tiers.effortLabel": "Effort for the {tier} tier",
+  "provider.tiers.notSet": "Not set",
+  "provider.tiers.defaultEffort": "Model default",
+  "provider.tiers.loadFailed": "Could not load the delegation tiers.",
+  "provider.tiers.saveFailed": "Could not save the delegation tiers.",
+  "provider.magpie.autoStart": "Start Magpie with OpenBot",
+  "provider.magpie.autoStartDescription":
+    "When no Magpie gateway answers, OpenBot runs magpie serve and stops it again on quit.",
+  "provider.magpie.running": "Magpie answers at {origin}.",
+  "provider.magpie.stopped": "Magpie does not answer at {origin}.",
 
   // The optional OpenCode Go key dialog.
   "provider.openCodeKey.title": "Sign in to OpenCode Go",

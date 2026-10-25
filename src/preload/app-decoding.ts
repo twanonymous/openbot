@@ -77,6 +77,7 @@ import {
   isDetectedAcpAgent,
   isDetectedModelServer,
   isDiscoverModelsResult,
+  isMagpieGatewaySettings,
   isProviderDetectionSettings,
   isRemoteDesktopSetupStatus,
   isRemoteDesktopTestStatus,
@@ -84,6 +85,7 @@ import {
   isSpeechVoice,
   isVoiceLanguage,
   isVoiceModelId,
+  type MagpieGatewaySettings,
   type MobileConnectedDevice,
   type MobileConnectLink,
   type MobileConnectTicket,
@@ -624,6 +626,11 @@ export function decodeCustomAgentCheckResult(value: unknown): CustomAgentCheckRe
 
 export function decodeDiscoverModelsResult(value: unknown): DiscoverModelsResult {
   if (!isDiscoverModelsResult(value)) throw new Error("Invalid model list response.");
+  return value;
+}
+
+export function decodeMagpieGatewaySettings(value: unknown): MagpieGatewaySettings {
+  if (!isMagpieGatewaySettings(value)) throw new Error("Invalid Magpie settings response.");
   return value;
 }
 

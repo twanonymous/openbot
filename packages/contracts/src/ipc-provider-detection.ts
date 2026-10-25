@@ -42,6 +42,27 @@ export const MAGPIE_API_KEY = "magpie-openbot";
 
 export type DefaultModelServerId = keyof typeof DEFAULT_MODEL_SERVERS;
 
+/** The Magpie gateway on this computer, as Settings shows it. */
+export interface MagpieGatewaySettings {
+  /** OpenBot starts `magpie serve` when it starts and no gateway answers. */
+  autoStart: boolean;
+  running: boolean;
+  /** The gateway's root address, from Magpie's settings file. */
+  origin: string;
+  /** OpenBot started the gateway that runs, so it stops it on quit. */
+  startedByOpenBot: boolean;
+}
+
+export function isMagpieGatewaySettings(value: unknown): value is MagpieGatewaySettings {
+  return (
+    isDynamicRecord(value) &&
+    isBoolean(value.autoStart) &&
+    isBoolean(value.running) &&
+    isBoundedString(value.origin, CUSTOM_PROVIDER_LIMITS.baseUrl) &&
+    isBoolean(value.startedByOpenBot)
+  );
+}
+
 /** Where the host looks, besides the default addresses and PATH, and the rows the user hid. */
 export interface ProviderDetectionSettings {
   enabled: boolean;

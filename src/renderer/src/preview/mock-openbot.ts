@@ -64,6 +64,7 @@ import {
   DEFAULT_APP_LOGO_COLOR,
   DEFAULT_APPROVAL_AUTOMATION_PREFERENCE,
   DEFAULT_BUSY_MESSAGE_MODE,
+  DEFAULT_DELEGATION_TIERS,
   DEFAULT_DYNAMIC_ISLAND_PREFERENCE,
   DEFAULT_EXTERNAL_LINK_PREFERENCE,
   DEFAULT_PROMPT_CACHE_TTL,
@@ -72,6 +73,7 @@ import {
   DEFAULT_REMOTE_NETWORK_ROUTE,
   DEFAULT_REMOTE_SESSION_REUSE_PREFERENCE,
   DEFAULT_TRANSPARENT_WINDOW,
+  type DelegationTiers,
   type DirectConversationSnapshot,
   type DirectMessageRealtimeEvent,
   type DirectTypingRealtimeEvent,
@@ -553,6 +555,8 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
   let agentCounter = agents.length;
   let hostedSites = clone(STORY_HOSTED_SITES);
   let detectionSettings: ProviderDetectionSettings = clone(DEFAULT_PROVIDER_DETECTION_SETTINGS);
+  const magpiePreview = { autoStart: false, origin: "http://127.0.0.1:3425" };
+  let delegationTiersPreview: DelegationTiers = clone(DEFAULT_DELEGATION_TIERS);
   let customAgents: CustomAgentSummary[] = [];
   const registryEntry: AcpRegistryEntry = {
     id: "example-acp",
@@ -1414,6 +1418,19 @@ export function createMockOpenBot(options: MockOpenBotOptions = {}): MockOpenBot
       setSettings: async (settings) => {
         detectionSettings = clone(settings);
         return clone(detectionSettings);
+      },
+      // Preview runs no Magpie gateway.
+      getMagpie: async () => ({ ...magpiePreview, running: false, startedByOpenBot: false }),
+      setMagpieAutoStart: async (autoStart) => {
+        magpiePreview.autoStart = autoStart;
+        return { ...magpiePreview, running: false, startedByOpenBot: false };
+      },
+    },
+    delegation: {
+      getTiers: async () => clone(delegationTiersPreview),
+      setTiers: async (tiers) => {
+        delegationTiersPreview = clone(tiers);
+        return clone(delegationTiersPreview);
       },
     },
     // Preview has one host, so every server answers for the same agents.

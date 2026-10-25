@@ -13,7 +13,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import type { AgentModelOption, UpdateAgentInput } from "@openbot/contracts/ipc";
+import { type AgentModelOption, DEFAULT_DELEGATION_TIERS, type UpdateAgentInput } from "@openbot/contracts/ipc";
 import { type DynamicRecord, isDynamicRecord } from "@openbot/contracts/runtime-values";
 import { sourceText } from "@openbot/i18n/source";
 import { Effect } from "effect";
@@ -95,6 +95,7 @@ try {
             Effect.mapError((failure) => new ToolOperationFailed({ cause: failure.cause })),
           ),
     redactMcp: (text: string) => text,
+    delegationTiers: () => DEFAULT_DELEGATION_TIERS,
   };
 
   /** One `update_agents` call from the coordinator, answered as the tool router answers it. */

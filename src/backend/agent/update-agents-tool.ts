@@ -3,6 +3,7 @@ import { sourceText } from "@openbot/i18n/source";
 import { createOpenBotLogger } from "@openbot/logging";
 import { Effect } from "effect";
 import type { DynamicToolCallParams } from "../protocol";
+import { resolveTierRequest } from "./delegation-tiers";
 import { requestedRuntime, requestedToolModel } from "./model-tools";
 import type { OpenBotToolRouterHooks } from "./openbot-tool-router";
 import {
@@ -44,11 +45,15 @@ export const handleUpdateAgentsTool = Effect.fn("UpdateAgentsTool.handle")(
   function* (
     params: DynamicToolCallParams,
     senderAgentId: string,
-    hooks: Pick<OpenBotToolRouterHooks, "listAgents" | "listModels" | "updateAgent" | "redactMcp">,
+    hooks: Pick<OpenBotToolRouterHooks, "listAgents" | "listModels" | "updateAgent" | "redactMcp" | "delegationTiers">,
   ): Effect.fn.Return<OpenBotToolResponse, ToolOperationFailed> {
-    const { agentIds, provider, model, reasoningEffort, access, computerUse, notifications } =
-      updateAgentsToolSchema.parse(params.arguments, { reportInput: true });
-    const runtimeRequest = { provider, model, reasoningEffort };
+    const { agentIds, tier, access, computerUse, notifications, ...named } = updateAgentsToolSchema.parse(
+      params.arguments,
+      { reportInput: true },
+    );
+    // A tier stands for the provider, model and effort that the user set for it.
+    const runtimeRequest = resolveTierRequest({ tier, ...named }, hooks.delegationTiers());
+    const { provider, model, reasoningEffort } = runtimeRequest;
     if ([provider, model, reasoningEffort, access, computerUse, notifications].every((value) => value === undefined)) {
       throw new Error("At least one setting is required.");
     }

@@ -36,6 +36,9 @@ export const messages = defineMessages("error.agent", {
   "error.agent.modelNotListed": 'Model "{model}" is not available. Available models: {models}.',
   "error.agent.providerNotListed":
     "No {provider} model is available now. Call list_models to see the available models.",
+  "error.agent.tierWithModel": "Pass a tier, or a provider and a model, not both.",
+  "error.agent.tierNotSet":
+    "The user has not set the {tier} delegation tier. Call list_models and name a provider and a model.",
   "error.agent.reasoningEffortUnsupported":
     'Model "{model}" does not support reasoning effort "{effort}". Supported efforts: {efforts}.',
   "error.agent.noStartingModelInSettings":

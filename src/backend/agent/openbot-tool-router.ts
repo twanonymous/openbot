@@ -9,6 +9,7 @@ import type {
   AvatarImageInput,
   ConversationMessage,
   CreateAgentInput,
+  DelegationTiers,
   McpServerConfig,
   SidebarLayoutSnapshot,
   UpdateAgentInput,
@@ -69,6 +70,7 @@ import type { BrowserUploads } from "./browser-uploads";
 import type { ChatVisualPreviewHost } from "./chat-visual-preview";
 import type { ConversationRuntime } from "./conversation-runtime";
 import { handleDataTool } from "./data-tools";
+import { delegationTiersPayload, resolveTierRequest } from "./delegation-tiers";
 import { responseAttachmentMessageId, visualReplyFileName, visualReplyMessageId } from "./delivery-content";
 import type { DrainScheduler } from "./drain-scheduler";
 import { HistoryTools } from "./history-tools";
@@ -141,6 +143,8 @@ export interface OpenBotToolRouterHooks {
   /** The accounts of a signed-in provider, as the settings page lists them. */
   providerAccounts: ProviderAccountRows;
   preferredProvider(): AgentProvider;
+  /** The user's delegation tiers, which `create_agent`, `update_profile` and `update_agents` accept. */
+  delegationTiers(): DelegationTiers;
   createAgent(
     input: CreateAgentInput,
     configure?: (agent: AgentSummary) => Effect.Effect<AgentSummary, ToolOperationFailed>,
@@ -870,12 +874,17 @@ export class OpenBotToolRouter {
 
     if (params.tool === "list_models") {
       const args = listModelsToolSchema.parse(params.arguments ?? {});
-      const payload = listModelsPayload(
-        this.#hooks.listModels(),
-        this.#hooks.preferredProvider(),
-        this.#hooks.providerAccounts,
-        args.provider,
-      );
+      const tiers = delegationTiersPayload(this.#hooks.delegationTiers());
+      const payload = {
+        ...listModelsPayload(
+          this.#hooks.listModels(),
+          this.#hooks.preferredProvider(),
+          this.#hooks.providerAccounts,
+          args.provider,
+        ),
+        // The models that the user chose for each task difficulty. Pass `tier` to create_agent for these.
+        ...(tiers.length > 0 ? { delegationTiers: tiers } : {}),
+      };
       return { success: true, contentItems: [{ type: "inputText", text: redactText(JSON.stringify(payload)) }] };
     }
 
@@ -1350,9 +1359,11 @@ export class OpenBotToolRouter {
       const hue = args.avatarHue ?? null;
       const caller = this.#requireAgent(senderAgentId);
       const listed = this.#hooks.listModels();
+      // A tier stands for the provider, model and effort that the user set for it.
+      const request = resolveTierRequest(args, this.#hooks.delegationTiers());
       // Checked before the agent exists: a named model the provider does not list, or an effort the
       // model does not support, is an error the calling agent can correct, never a silent default.
-      const named = requestedToolModel(args, listed);
+      const named = requestedToolModel(request, listed);
       // A request that names no provider and no model gives the new agent the caller's own model, so
       // a team that one agent recruits runs where that agent runs. When the caller's provider no
       // longer lists that model, the new agent starts where one the user creates does.
@@ -1360,11 +1371,12 @@ export class OpenBotToolRouter {
         named === null
           ? (listed.find((model) => model.provider === caller.provider && model.id === caller.model) ?? null)
           : null;
-      if (inherited && args.reasoningEffort !== undefined) requireReasoningEffort(inherited, args.reasoningEffort);
+      if (inherited && request.reasoningEffort !== undefined)
+        requireReasoningEffort(inherited, request.reasoningEffort);
       const requested = named ?? inherited;
-      const reasoningEffort = args.reasoningEffort ?? (inherited ? caller.reasoningEffort : undefined);
+      const reasoningEffort = request.reasoningEffort ?? (inherited ? caller.reasoningEffort : undefined);
       // An effort alone applies to the model the new agent starts on, known only once it exists.
-      const lateEffort = requested === null ? args.reasoningEffort : undefined;
+      const lateEffort = requested === null ? request.reasoningEffort : undefined;
       const sectionId = this.#sidebarLayout?.getSnapshot().agentAssignments[senderAgentId] ?? null;
       // A new agent starts with Full access and Computer Use. A caller without them passes its limits
       // on, so it cannot get around them through an agent it creates.
@@ -1442,9 +1454,10 @@ export class OpenBotToolRouter {
         agentId,
         avatarHue,
         avatarPath,
-        provider,
-        model,
-        reasoningEffort,
+        tier,
+        provider: namedProvider,
+        model: namedModel,
+        reasoningEffort: namedEffort,
         providerAccountId,
         backupModels,
         access,
@@ -1454,7 +1467,11 @@ export class OpenBotToolRouter {
       if (avatarPath !== undefined && (args.avatarSeed !== undefined || avatarHue !== undefined)) {
         throw new Error("Use avatarPath or generated avatar settings, not both.");
       }
-      const runtimeRequest = { provider, model, reasoningEffort };
+      // A tier stands for the provider, model and effort that the user set for it.
+      const runtimeRequest = resolveTierRequest(
+        { tier, provider: namedProvider, model: namedModel, reasoningEffort: namedEffort },
+        this.#hooks.delegationTiers(),
+      );
       if (
         Object.values(fields).every((value) => value === undefined) &&
         Object.values(runtimeRequest).every((value) => value === undefined) &&

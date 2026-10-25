@@ -43,6 +43,7 @@ export * from "./ipc-conversation-trace";
 export * from "./ipc-conversations";
 export * from "./ipc-custom-agents";
 export * from "./ipc-custom-providers";
+export * from "./ipc-delegation-tiers";
 export * from "./ipc-desktop-apis";
 export * from "./ipc-dynamic-island";
 export * from "./ipc-endpoints";

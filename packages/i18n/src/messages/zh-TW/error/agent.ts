@@ -31,6 +31,8 @@ export const messages = {
   "error.agent.modelProviderMismatch": "所選模型不屬於該服務商。",
   "error.agent.modelNotListed": "模型「{model}」不可用。可用模型：{models}。",
   "error.agent.providerNotListed": "當前沒有可用的 {provider} 模型，請呼叫 list_models 檢視可用模型。",
+  "error.agent.tierWithModel": "請傳入委派層級，或傳入供應商與模型，不要兩者都傳。",
+  "error.agent.tierNotSet": "使用者尚未設定 {tier} 委派層級。請呼叫 list_models，並指定供應商與模型。",
   "error.agent.reasoningEffortUnsupported": "模型「{model}」不支援推理強度「{effort}」。支援的強度：{efforts}。",
   "error.agent.noStartingModelInSettings":
     "{provider} 沒有可用模型，其他已登入的服務商也沒有。請登入某個服務商，或在「伺服器設定 → 服務商」中更改預設服務商。",

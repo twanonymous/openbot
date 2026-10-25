@@ -112,7 +112,9 @@ import {
   type BusyMessageMode,
   CONTEXT_RESET_ITEM_TYPE,
   DEFAULT_BUSY_MESSAGE_MODE,
+  DEFAULT_DELEGATION_TIERS,
   DEFAULT_PROVIDER_ACCOUNT_ID,
+  type DelegationTiers,
   isContextResetMarker,
   MODEL_SWITCH_ITEM_TYPES,
   type ModelSwitchReason,
@@ -277,6 +279,8 @@ export interface AgentServiceOptions {
   preferredProvider?: AgentProvider;
   /** The model chosen beside `preferredProvider`, or `null` for that provider's own default. */
   preferredModel?: AgentModelId | null;
+  /** The user's delegation tiers, read at each tool call. Without it no tier is set. */
+  delegationTiers?: () => DelegationTiers;
   clientFactory?: AgentClientFactory | null;
   bundledExecutables?: BundledProviderExecutables;
   prepareAgentWorkspace?: (agent: AgentSummary) => Effect.Effect<void, AgentLifecycleFailed>;
@@ -1350,6 +1354,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         listModels: () => this.listModels(),
         providerAccounts: (provider) => this.getStatus().providers?.find((row) => row.id === provider)?.accounts,
         preferredProvider: () => this.preferredProvider(),
+        delegationTiers: () => options.delegationTiers?.() ?? DEFAULT_DELEGATION_TIERS,
         createAgent: (input, configure) =>
           this.createAgent(
             input,
