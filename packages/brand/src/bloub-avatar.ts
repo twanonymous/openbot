@@ -1,11 +1,4 @@
-import {
-  COLOR_BY_ID,
-  type ColorId,
-  EXPRESSIONS,
-  type ExpressionId,
-  SHAPES,
-  type ShapeId,
-} from "@norbert_bodziony/bloub";
+import { COLOR_BY_ID, type ColorId, type ExpressionId, SHAPES, type ShapeId } from "@norbert_bodziony/bloub";
 import type { AvatarHue } from "@openbot/contracts/ipc";
 
 export type SupportedAvatarSilhouetteId = Exclude<ShapeId, "goutte">;
@@ -17,6 +10,23 @@ export interface BloubAvatarProfile {
 }
 
 const AUTOMATIC_COLORS = ["rouge", "orange", "ambre", "vert", "turquoise", "bleu", "violet", "rose"] as const;
+
+/**
+ * The resting faces a seed may draw. An agent wears its seeded face for good, so the faces that read
+ * as a mood - angry, sad, scared, wary, confused, bored, sleepy - stay out: an agent that happens to
+ * look furious in every list says something the person never chose. The moods themselves still lend
+ * a passing face while they last (a failed turn looks sad), see `bloub-avatar-motion`.
+ */
+export const RESTING_EXPRESSIONS = [
+  "neutre",
+  "attentif",
+  "heureux",
+  "excite",
+  "hilare",
+  "curieux",
+  "fier",
+  "timide",
+] as const satisfies readonly ExpressionId[];
 const UNSUPPORTED_AVATAR_SILHOUETTE = "goutte" as const satisfies ShapeId;
 const SUPPORTED_AVATAR_SILHOUETTES = SHAPES.map((option) => option.id).filter(
   (silhouette): silhouette is SupportedAvatarSilhouetteId => silhouette !== UNSUPPORTED_AVATAR_SILHOUETTE,
@@ -63,7 +73,7 @@ export function bloubAvatarProfile(seed: string, hue: AvatarHue | null): BloubAv
           stableIndex(`${seed}:shape:replacement`, SUPPORTED_AVATAR_SILHOUETTES.length),
         )
       : storedSilhouette;
-  const expression = requiredItem(EXPRESSIONS, stableIndex(`${seed}:expression`, EXPRESSIONS.length)).id;
+  const expression = requiredItem(RESTING_EXPRESSIONS, stableIndex(`${seed}:expression`, RESTING_EXPRESSIONS.length));
 
   return {
     shape: silhouette,
@@ -106,7 +116,8 @@ export function avatarCandidateSeeds(agentId: string, currentSeed: string, batch
     index += 1;
     if (candidates.includes(candidate)) continue;
     const profile = bloubAvatarProfile(candidate, null);
-    if (usedExpressions.has(profile.expression)) continue;
+    // Fewer resting faces than candidates: once each has shown, a face may repeat on another shape.
+    if (usedExpressions.has(profile.expression) && usedExpressions.size < RESTING_EXPRESSIONS.length) continue;
     candidates.push(candidate);
     usedExpressions.add(profile.expression);
   }

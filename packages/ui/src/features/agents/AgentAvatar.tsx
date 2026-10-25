@@ -21,6 +21,7 @@ import { createEffect, createMemo, createSignal, createUniqueId, For, onSettled,
 import { type AvatarMotion, bloubAvatarProfile, type SupportedAvatarSilhouetteId } from "../../bloub-avatar";
 import type { AgentProfile } from "../../data";
 import { createPointerGaze } from "./avatar-pointer-gaze";
+import { attachRestingLife, restingMove } from "./avatar-resting-life";
 
 // Cap avatar animation at 30fps: uncapped bloub clocks measured 30% renderer / 24% GPU
 // for two visible avatars. The shape is 24-40px, so the eye cannot see the difference.
@@ -327,8 +328,11 @@ function GeneratedAvatar(props: {
     interactionTarget?.addEventListener("pointerleave", stopInteraction);
     interactionTarget?.addEventListener("focusin", startInteraction);
     interactionTarget?.addEventListener("focusout", stopFocusInteraction);
+    // While it shows a frozen frame, the avatar now and then blinks or makes its move.
+    const releaseLife = element ? attachRestingLife(element) : undefined;
 
     return () => {
+      releaseLife?.();
       media?.removeEventListener?.("change", syncReducedMotion);
       interactionTarget?.removeEventListener("pointerenter", startInteraction);
       interactionTarget?.removeEventListener("pointerleave", stopInteraction);
@@ -368,6 +372,8 @@ function GeneratedAvatar(props: {
       data-avatar="generated"
       data-mood={props.mood}
       data-breathe={props.breathe}
+      data-life={animated() ? undefined : "rest"}
+      data-life-move={restingMove(props.seed)}
       aria-hidden="true"
     >
       <AvatarRings when={presentation().rings}>
