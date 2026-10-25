@@ -690,6 +690,12 @@ export const OPENBOT_TOOL_DEFINITIONS: readonly OpenBotToolDefinition[] = [
           "True, the default, for a request, question, or delegated task: the recipient answers you and OpenBot sends its result back. False for information the recipient may act on but must not answer, such as a status update, a heads-up, or your own reply to a task. A false message ends the exchange.",
         )
         .optional(),
+      includeContext: z
+        .boolean()
+        .describe(
+          "True to give the recipients a short excerpt of your recent conversation as background for a delegated task. False, the default, sends only text.",
+        )
+        .optional(),
     },
   },
 ];

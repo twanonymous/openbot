@@ -11,6 +11,7 @@ import type { MessagingThreads } from "../messaging/messaging-threads";
 import { decodeTurnResponse } from "../protocol";
 import type { ContextCompaction } from "./context-compaction";
 import type { ConversationRuntime } from "./conversation-runtime";
+import type { DelegationContexts } from "./delegation-context";
 import {
   agentNamesById,
   CURRENT_MESSAGE_SEPARATOR,
@@ -113,6 +114,8 @@ function laneOf(key: string): Lane {
 const mainLane = (agentId: string): Lane => ({ agentId, taskId: null });
 
 export interface DrainSchedulerOptions {
+  /** The delegator excerpts that go in front of delegated requests. Without it none is sent. */
+  delegationContexts?: DelegationContexts | undefined;
   store: AgentStore;
   mailbox: MailboxStore;
   mailboxSync: MailboxSync;
@@ -154,6 +157,7 @@ export class DrainScheduler {
   readonly #profileSave: ProfileSave;
   readonly #compaction: ContextCompaction;
   readonly #routines: RoutineScheduler;
+  readonly #delegationContexts: DelegationContexts | undefined;
   readonly #threads: ThreadLifecycle;
   readonly #memory: MemoryHold;
   readonly #usageLimits: UsageLimitGate;
@@ -201,6 +205,7 @@ export class DrainScheduler {
     this.#profileSave = options.profileSave;
     this.#compaction = options.compaction;
     this.#routines = options.routines;
+    this.#delegationContexts = options.delegationContexts;
     this.#threads = options.threads;
     this.#memory = options.memory;
     this.#usageLimits = options.usageLimits;
@@ -671,6 +676,7 @@ export class DrainScheduler {
               routineRun:
                 item.delivery.sender.kind === "routine" ? this.#routines.runForDelivery(item.delivery.id) : null,
               wokenWaits: item.delivery.sender.kind === "routine" ? this.#routines.wokenWaits(item.delivery.id) : [],
+              delegatorContext: this.#delegationContexts?.forDelivery(item.delivery) ?? null,
               ...(executionText === undefined ? {} : { executionText }),
             }),
           ),

@@ -53,6 +53,12 @@ export const createAgentToolSchema = z
     avatarSeed: profileFields.avatarSeed.optional(),
     avatarHue: profileFields.avatarHue.optional(),
     initialMessage: z.string().trim().min(1).max(INPUT_LIMITS.messageText),
+    includeContext: z
+      .boolean()
+      .describe(
+        "true, the default: the new agent also gets a short excerpt of your recent conversation as background for its first task. false: it gets only initialMessage.",
+      )
+      .optional(),
     tier: tierField.optional(),
     provider: z
       .enum(AGENT_PROVIDERS)

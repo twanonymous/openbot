@@ -70,9 +70,16 @@ import type { BrowserUploads } from "./browser-uploads";
 import type { ChatVisualPreviewHost } from "./chat-visual-preview";
 import type { ConversationRuntime } from "./conversation-runtime";
 import { handleDataTool } from "./data-tools";
+import { type DelegationContexts, type DelegatorContext, renderDelegationHandoff } from "./delegation-context";
 import { delegationTiersPayload, resolveTierRequest } from "./delegation-tiers";
-import { responseAttachmentMessageId, visualReplyFileName, visualReplyMessageId } from "./delivery-content";
+import {
+  agentNamesById,
+  responseAttachmentMessageId,
+  visualReplyFileName,
+  visualReplyMessageId,
+} from "./delivery-content";
 import type { DrainScheduler } from "./drain-scheduler";
+import { readHandoffHistory } from "./handoff-history";
 import { HistoryTools } from "./history-tools";
 import type { HostedSiteCoordinator } from "./hosted-site-coordinator";
 import { isHostedSiteMutationTool } from "./hosted-site-events";
@@ -202,6 +209,8 @@ export interface OpenBotToolRouterOptions {
   mcpServers?: AgentMcpServers | null | undefined;
   /** The API keys that users saved for agents; null where nothing can save them. */
   apiKeys?: AgentApiKeys | null | undefined;
+  /** The delegator excerpts that wait for their delivery. Without it no excerpt is sent. */
+  delegationContexts?: DelegationContexts | undefined;
   hooks: OpenBotToolRouterHooks;
 }
 
@@ -239,6 +248,7 @@ export class OpenBotToolRouter {
   readonly #screenCapture: ScreenCaptureHost | null;
   readonly #mcpServers: AgentMcpServers | null;
   readonly #apiKeys: AgentApiKeys | null;
+  readonly #delegationContexts: DelegationContexts | undefined;
   readonly #hooks: OpenBotToolRouterHooks;
   readonly #interruptTool: AgentInterruptTool;
 
@@ -273,6 +283,7 @@ export class OpenBotToolRouter {
     this.#screenCapture = options.screenCapture ?? null;
     this.#mcpServers = options.mcpServers ?? null;
     this.#apiKeys = options.apiKeys ?? null;
+    this.#delegationContexts = options.delegationContexts;
     this.#hooks = options.hooks;
     this.#interruptTool = new AgentInterruptTool({
       store: options.store,
@@ -1358,6 +1369,8 @@ export class OpenBotToolRouter {
       const args = createAgentToolSchema.parse(params.arguments, { reportInput: true });
       const hue = args.avatarHue ?? null;
       const caller = this.#requireAgent(senderAgentId);
+      // The new agent reads the caller's recent conversation before its first task, unless the caller says no.
+      const delegator = args.includeContext === false ? null : this.#delegatorContext(senderAgentId, params.threadId);
       const listed = this.#hooks.listModels();
       // A tier stands for the provider, model and effort that the user set for it.
       const request = resolveTierRequest(args, this.#hooks.delegationTiers());
@@ -1402,6 +1415,8 @@ export class OpenBotToolRouter {
           },
           (agent) =>
             Effect.gen({ self: this }, function* () {
+              // Before the first message is sent, which happens right after this step.
+              if (delegator) this.#delegationContexts?.setForNewAgent(agent.id, delegator);
               if (assign) yield* assign(agent.id).pipe(toToolOperationFailed);
               if (lateEffort !== undefined) {
                 const models = this.#hooks.listModels();
@@ -1592,6 +1607,26 @@ export class OpenBotToolRouter {
     Effect.uninterruptible,
   );
 
+  /**
+   * A short excerpt of the caller's recent conversation for a delegated task, or null when the
+   * conversation has no message or cannot be read: the task then goes without it.
+   */
+  #delegatorContext(senderAgentId: string, providerThreadId: string): DelegatorContext | null {
+    if (!this.#delegationContexts) return null;
+    try {
+      const names = agentNamesById(this.#store.list());
+      const threadId = this.#conversation.publicThreadId(senderAgentId, providerThreadId);
+      const excerpt = renderDelegationHandoff(
+        readHandoffHistory(this.#store.database, senderAgentId, threadId, names),
+        names,
+      );
+      return excerpt ? { senderAgentId, excerpt: this.#hooks.redactMcp(excerpt) } : null;
+    } catch (cause) {
+      logger.warn("The delegator context was not read.", { agentId: senderAgentId, error: String(cause) });
+      return null;
+    }
+  }
+
   readonly #sendMessage = Effect.fn("OpenBotToolRouter.sendMessage")(
     function* (
       this: OpenBotToolRouter,
@@ -1634,6 +1669,10 @@ export class OpenBotToolRouter {
       if (expectsReply !== undefined && typeof expectsReply !== "boolean") {
         throw new Error("expectsReply must be a boolean.");
       }
+      const includeContext = params.arguments.includeContext;
+      if (includeContext !== undefined && typeof includeContext !== "boolean") {
+        throw new Error("includeContext must be a boolean.");
+      }
 
       // A request from a Slack turn: the teammate's answer goes back to that Slack thread.
       const messagingReturn = this.#mailbox
@@ -1654,6 +1693,9 @@ export class OpenBotToolRouter {
           idempotencyKey: toolCallIdempotencyKey(params),
         })
         .pipe(toToolOperationFailed);
+      // Before the drain starts, so the first prompt of each recipient has the excerpt.
+      const delegator = includeContext === true ? this.#delegatorContext(senderAgentId, params.threadId) : null;
+      if (delegator) this.#delegationContexts?.setForMessage(receipt.messageId, delegator);
       for (const recipient of recipientValues) {
         this.#mailboxSync.emitQueue(recipient);
         this.#drain.scheduleDrain(recipient);

@@ -16,6 +16,7 @@ import type { MailboxStore } from "../mailbox-store";
 import { decodeRecordResponse } from "../protocol";
 import type { ConversationRuntime } from "./conversation-runtime";
 import type { CustomEndpoints } from "./custom-endpoints";
+import type { DelegationContexts } from "./delegation-context";
 import { agentNamesById, deliveryPromptInput } from "./delivery-content";
 import { type DrainScheduler, REMOVED_ENDPOINT_MESSAGE } from "./drain-scheduler";
 import type { MailboxSync } from "./mailbox-sync";
@@ -31,6 +32,8 @@ export interface QueueControlsHooks {
 }
 
 export interface QueueControlsOptions {
+  /** The delegator excerpts that go in front of delegated requests. Without it none is sent. */
+  delegationContexts?: DelegationContexts | undefined;
   store: AgentStore;
   mailbox: MailboxStore;
   mailboxSync: MailboxSync;
@@ -57,6 +60,7 @@ export class QueueControls {
   readonly #endpoints: CustomEndpoints;
   readonly #drain: DrainScheduler;
   readonly #routines: RoutineScheduler;
+  readonly #delegationContexts: DelegationContexts | undefined;
   readonly #hooks: QueueControlsHooks;
 
   constructor(options: QueueControlsOptions) {
@@ -68,6 +72,7 @@ export class QueueControls {
     this.#endpoints = options.endpoints;
     this.#drain = options.drain;
     this.#routines = options.routines;
+    this.#delegationContexts = options.delegationContexts;
     this.#hooks = options.hooks;
   }
 
@@ -266,6 +271,7 @@ export class QueueControls {
             routineRun:
               context.delivery.sender.kind === "routine" ? this.#routines.runForDelivery(input.deliveryId) : null,
             wokenWaits: context.delivery.sender.kind === "routine" ? this.#routines.wokenWaits(input.deliveryId) : [],
+            delegatorContext: this.#delegationContexts?.forDelivery(context.delivery) ?? null,
           }),
         },
         decodeRecordResponse,
