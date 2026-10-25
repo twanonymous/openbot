@@ -377,6 +377,11 @@ export const messages = {
   "error.provider.museSignIn": "Entre no Muse no computador anfitrião para continuar.",
   "error.provider.inceptionSignIn": "Adicione uma chave de API da Inception para continuar.",
   "error.provider.deepseekSignIn": "Adicione uma chave de API da DeepSeek para continuar.",
+  "error.provider.magpieSignIn": "Inicie o Magpie com magpie serve e tente novamente.",
+  "error.provider.magpieNotRunning":
+    "O Magpie não está em execução neste computador. Inicie-o com magpie serve ou ative o início automático e tente novamente.",
+  "error.provider.magpieRefused":
+    "O Magpie recusou a chave de app do OpenBot (magpie-openbot). Permita o app no Magpie e tente novamente.",
   "error.provider.terminalLoginFailed":
     "O terminal de login não pôde abrir. Abra a CLI do provedor neste computador anfitrião e entre por lá, depois atualize os provedores.",
   "error.provider.nativeArchiveInvalid": "O download do provedor não contém uma instalação válida.",

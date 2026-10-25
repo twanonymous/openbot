@@ -125,6 +125,7 @@ const PROVIDER_DESCRIPTION_KEYS: Readonly<Record<string, AppTextKey>> = {
   "Free models with a Cline account": "onboarding.provider.clineAccount",
   "Mercury models with an Inception API key": "onboarding.provider.inceptionKey",
   "DeepSeek models with a DeepSeek API key": "onboarding.provider.deepseekKey",
+  "Models from your local Magpie gateway": "onboarding.provider.magpieGateway",
 };
 
 /**

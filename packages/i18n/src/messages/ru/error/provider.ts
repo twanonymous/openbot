@@ -373,6 +373,11 @@ export const messages = {
   "error.provider.museSignIn": "Чтобы продолжить, войдите в Muse на компьютере-хосте.",
   "error.provider.inceptionSignIn": "Чтобы продолжить, добавьте ключ API Inception.",
   "error.provider.deepseekSignIn": "Добавьте ключ API DeepSeek, чтобы продолжить.",
+  "error.provider.magpieSignIn": "Запустите Magpie командой magpie serve и повторите попытку.",
+  "error.provider.magpieNotRunning":
+    "Magpie не запущен на этом компьютере. Запустите его командой magpie serve или включите автозапуск и повторите попытку.",
+  "error.provider.magpieRefused":
+    "Magpie отклонил ключ приложения OpenBot (magpie-openbot). Разрешите приложение в Magpie и повторите попытку.",
   "error.provider.terminalLoginFailed":
     "Не удалось открыть терминал для входа. Откройте CLI провайдера на этом хосте, войдите там, затем обновите список провайдеров.",
   "error.provider.nativeArchiveInvalid": "Загруженный файл провайдера не содержит корректной установки.",

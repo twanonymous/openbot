@@ -157,6 +157,7 @@ export type AgentAuthState =
   | { kind: "muse"; email: string | null }
   | { kind: "inception"; email: string | null }
   | { kind: "deepseek"; email: string | null }
+  | { kind: "magpie"; email: string | null }
   | { kind: "acp"; email: string | null };
 
 export interface AccountUsageWindow {

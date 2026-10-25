@@ -395,6 +395,11 @@ export const messages = {
   "error.provider.museSignIn": "Melde dich auf dem Host-Computer bei Muse an, um fortzufahren.",
   "error.provider.inceptionSignIn": "Füge einen Inception-API-Schlüssel hinzu, um fortzufahren.",
   "error.provider.deepseekSignIn": "Füge einen DeepSeek-API-Schlüssel hinzu, um fortzufahren.",
+  "error.provider.magpieSignIn": "Starten Sie Magpie mit magpie serve und versuchen Sie es erneut.",
+  "error.provider.magpieNotRunning":
+    "Magpie läuft nicht auf diesem Computer. Starten Sie es mit magpie serve oder aktivieren Sie den Autostart und versuchen Sie es erneut.",
+  "error.provider.magpieRefused":
+    "Magpie hat den OpenBot-App-Schlüssel (magpie-openbot) abgelehnt. Erlauben Sie die App in Magpie und versuchen Sie es erneut.",
   "error.provider.terminalLoginFailed":
     "Das Anmeldeterminal konnte nicht geöffnet werden. Öffne die Anbieter-CLI auf diesem Host, melde dich dort an und aktualisiere dann die Anbieter.",
   "error.provider.nativeArchiveInvalid": "Der Anbieter-Download enthält keine gültige Installation.",

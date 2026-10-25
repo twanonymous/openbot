@@ -361,6 +361,11 @@ export const messages = defineMessages("error.provider", {
   "error.provider.museSignIn": "Sign in to Muse on the host computer to continue.",
   "error.provider.inceptionSignIn": "Add an Inception API key to continue.",
   "error.provider.deepseekSignIn": "Add a DeepSeek API key to continue.",
+  "error.provider.magpieSignIn": "Start Magpie with magpie serve, then try again.",
+  "error.provider.magpieNotRunning":
+    "Magpie is not running on this computer. Start it with magpie serve, or turn on auto-start, then try again.",
+  "error.provider.magpieRefused":
+    "Magpie refused the OpenBot app key (magpie-openbot). Allow the app in Magpie, then try again.",
   "error.provider.terminalLoginFailed":
     "The sign-in terminal could not open. Open the provider CLI on this host and sign in there, then refresh providers.",
   "error.provider.nativeArchiveInvalid": "The provider download does not contain a valid installation.",

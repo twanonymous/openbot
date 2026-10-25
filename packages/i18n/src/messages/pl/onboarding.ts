@@ -44,6 +44,7 @@ export const messages = {
   "onboarding.provider.clineAccount": "Darmowe modele z kontem Cline",
   "onboarding.provider.inceptionKey": "Modele Mercury z kluczem API Inception",
   "onboarding.provider.deepseekKey": "Modele DeepSeek z kluczem API DeepSeek",
+  "onboarding.provider.magpieGateway": "Modele z lokalnej bramki Magpie",
   "onboarding.provider.tryFree": "Wypróbuj za darmo",
   "onboarding.provider.noSignIn": "Bez logowania",
   "onboarding.provider.more": "Więcej dostawców",

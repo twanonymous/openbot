@@ -386,6 +386,11 @@ export const messages = {
   "error.provider.museSignIn": "続行するには、ホストコンピューターで Muse にサインインしてください。",
   "error.provider.inceptionSignIn": "続行するには、Inception API キーを追加してください。",
   "error.provider.deepseekSignIn": "続けるには DeepSeek API キーを追加してください。",
+  "error.provider.magpieSignIn": "magpie serve で Magpie を起動してから、もう一度お試しください。",
+  "error.provider.magpieNotRunning":
+    "このコンピューターで Magpie が実行されていません。magpie serve で起動するか自動起動をオンにしてから、もう一度お試しください。",
+  "error.provider.magpieRefused":
+    "Magpie が OpenBot のアプリキー（magpie-openbot）を拒否しました。Magpie でアプリを許可してから、もう一度お試しください。",
   "error.provider.terminalLoginFailed":
     "サインイン用のターミナルを開けませんでした。このホストでプロバイダーの CLI を開いてサインインしてから、プロバイダーを更新してください。",
   "error.provider.nativeArchiveInvalid": "プロバイダーのダウンロードに有効なインストールが含まれていません。",

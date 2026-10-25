@@ -372,6 +372,11 @@ export const messages = {
   "error.provider.museSignIn": "Devam etmek için ana makinede Muse'da oturum açın.",
   "error.provider.inceptionSignIn": "Devam etmek için bir Inception API anahtarı ekleyin.",
   "error.provider.deepseekSignIn": "Devam etmek için bir DeepSeek API anahtarı ekleyin.",
+  "error.provider.magpieSignIn": "Magpie'yi magpie serve ile başlatın, sonra yeniden deneyin.",
+  "error.provider.magpieNotRunning":
+    "Magpie bu bilgisayarda çalışmıyor. magpie serve ile başlatın veya otomatik başlatmayı açın, sonra yeniden deneyin.",
+  "error.provider.magpieRefused":
+    "Magpie, OpenBot uygulama anahtarını (magpie-openbot) reddetti. Magpie'de uygulamaya izin verin, sonra yeniden deneyin.",
   "error.provider.terminalLoginFailed":
     "Oturum açma terminali açılamadı. Bu ana makinede sağlayıcı CLI'sini açıp orada oturum açın, ardından sağlayıcıları yenileyin.",
   "error.provider.nativeArchiveInvalid": "Sağlayıcı indirmesi geçerli bir kurulum içermiyor.",

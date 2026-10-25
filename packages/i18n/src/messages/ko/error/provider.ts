@@ -365,6 +365,11 @@ export const messages = {
   "error.provider.museSignIn": "계속하려면 호스트 컴퓨터에서 Muse에 로그인하세요.",
   "error.provider.inceptionSignIn": "계속하려면 Inception API 키를 추가하세요.",
   "error.provider.deepseekSignIn": "계속하려면 DeepSeek API 키를 추가하세요.",
+  "error.provider.magpieSignIn": "magpie serve로 Magpie를 시작한 뒤 다시 시도하세요.",
+  "error.provider.magpieNotRunning":
+    "이 컴퓨터에서 Magpie가 실행 중이 아닙니다. magpie serve로 시작하거나 자동 시작을 켠 뒤 다시 시도하세요.",
+  "error.provider.magpieRefused":
+    "Magpie가 OpenBot 앱 키(magpie-openbot)를 거부했습니다. Magpie에서 앱을 허용한 뒤 다시 시도하세요.",
   "error.provider.terminalLoginFailed":
     "로그인 터미널을 열 수 없었어요. 이 호스트에서 제공자 CLI를 열어 로그인한 후 제공자를 새로 고치세요.",
   "error.provider.nativeArchiveInvalid": "제공자 다운로드에 올바른 설치 파일이 없어요.",

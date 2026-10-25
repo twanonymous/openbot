@@ -1,4 +1,4 @@
-import { isAgentProvider, isKeyOnlyProvider } from "@openbot/contracts/agent-providers";
+import { isAgentProvider, isHostOnlyProvider } from "@openbot/contracts/agent-providers";
 import type { AgentSummary } from "@openbot/contracts/ipc";
 import type { TeamProtocolV1JsonObject, TeamProtocolV1JsonValue } from "@openbot/contracts/team-protocol/v1";
 
@@ -25,13 +25,14 @@ const FROZEN_PROVIDERS: ReadonlyMap<number, readonly string[]> = (() => {
 })();
 
 /**
- * Tells if a peer on this protocol must not see the provider: a key-only provider, or a provider of
+ * Tells if a peer on this protocol must not see the provider: a host-only provider, or a provider of
  * this host that the protocol's frozen list does not have. Protocol 8 and later see every other
  * provider.
  */
 export function isPeerHiddenProvider(value: unknown, protocol: number): boolean {
-  // A key-only provider, such as Inception or DeepSeek, runs in the host's Pi CLI with the host's own key.
-  if (isAgentProvider(value) && isKeyOnlyProvider(value)) return true;
+  // A key-only provider, such as Inception or DeepSeek, runs in the host's Pi CLI with the host's own
+  // key, and Magpie with the host's own gateway.
+  if (isAgentProvider(value) && isHostOnlyProvider(value)) return true;
   const known = FROZEN_PROVIDERS.get(Math.max(1, Math.min(protocol, 8)));
   return known !== undefined && isAgentProvider(value) && !known.includes(value);
 }

@@ -43,6 +43,7 @@ export const messages = defineMessages("onboarding", {
   "onboarding.provider.clineAccount": "Free models with a Cline account",
   "onboarding.provider.inceptionKey": "Mercury models with an Inception API key",
   "onboarding.provider.deepseekKey": "DeepSeek models with a DeepSeek API key",
+  "onboarding.provider.magpieGateway": "Models from your local Magpie gateway",
   "onboarding.provider.tryFree": "Try it free",
   "onboarding.provider.noSignIn": "No sign-in needed",
   "onboarding.provider.more": "More providers",

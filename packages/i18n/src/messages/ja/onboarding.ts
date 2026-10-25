@@ -45,6 +45,7 @@ export const messages = {
   "onboarding.provider.clineAccount": "Cline アカウントで無料モデル",
   "onboarding.provider.inceptionKey": "Inception API キーで Mercury モデル",
   "onboarding.provider.deepseekKey": "DeepSeek API キーで使う DeepSeek モデル",
+  "onboarding.provider.magpieGateway": "ローカルの Magpie ゲートウェイのモデル",
   "onboarding.provider.tryFree": "無料で試す",
   "onboarding.provider.noSignIn": "サインイン不要",
   "onboarding.provider.more": "その他のプロバイダー",

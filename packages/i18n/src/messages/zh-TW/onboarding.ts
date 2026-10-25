@@ -42,6 +42,7 @@ export const messages = {
   "onboarding.provider.clineAccount": "使用 Cline 賬號的免費模型",
   "onboarding.provider.inceptionKey": "使用 Inception API 金鑰的 Mercury 模型",
   "onboarding.provider.deepseekKey": "使用 DeepSeek API 金鑰的 DeepSeek 模型",
+  "onboarding.provider.magpieGateway": "來自本機 Magpie 閘道的模型",
   "onboarding.provider.tryFree": "免費試用",
   "onboarding.provider.noSignIn": "無需登入",
   "onboarding.provider.more": "更多服務商",

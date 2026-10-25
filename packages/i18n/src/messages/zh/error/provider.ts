@@ -330,6 +330,11 @@ export const messages = {
   "error.provider.museSignIn": "请在主机电脑上登录 Muse 以继续。",
   "error.provider.inceptionSignIn": "请添加 Inception API 密钥以继续。",
   "error.provider.deepseekSignIn": "请添加 DeepSeek API 密钥以继续。",
+  "error.provider.magpieSignIn": "请用 magpie serve 启动 Magpie，然后重试。",
+  "error.provider.magpieNotRunning":
+    "Magpie 没有在这台电脑上运行。请用 magpie serve 启动它，或开启自动启动，然后重试。",
+  "error.provider.magpieRefused":
+    "Magpie 拒绝了 OpenBot 的应用密钥（magpie-openbot）。请在 Magpie 中允许该应用，然后重试。",
   "error.provider.terminalLoginFailed": "无法打开登录终端。请在这台主机上打开服务商 CLI 并在那里登录，然后刷新服务商。",
   "error.provider.nativeArchiveInvalid": "服务商下载内容中不包含有效的安装。",
   "error.provider.nativeChecksum": "服务商安装未通过完整性校验。",

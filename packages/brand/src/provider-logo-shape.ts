@@ -56,6 +56,7 @@ export type ProviderLogoVariant =
   | "muse"
   | "inception"
   | "deepseek"
+  | "magpie"
   | "unknown";
 
 export interface ProviderLogoPath {
@@ -99,6 +100,7 @@ export function providerLogoShape(provider: ProviderLogoVariant): ProviderLogoSh
     case "pi":
     case "muse":
     case "inception":
+    case "magpie":
       return { viewBox: GRID_24, paths: [{ d: ACP_PROMPT_PATH }, { d: ACP_CURSOR_PATH }] };
     case "unknown":
       return { viewBox: GRID_24, paths: [{ d: UNKNOWN_PATH, evenOdd: true }] };

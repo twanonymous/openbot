@@ -46,6 +46,7 @@ export const messages = {
   "onboarding.provider.clineAccount": "Cline hesabıyla ücretsiz modeller",
   "onboarding.provider.inceptionKey": "Inception API anahtarıyla Mercury modelleri",
   "onboarding.provider.deepseekKey": "DeepSeek API anahtarıyla DeepSeek modelleri",
+  "onboarding.provider.magpieGateway": "Yerel Magpie ağ geçidinizdeki modeller",
   "onboarding.provider.tryFree": "Ücretsiz deneyin",
   "onboarding.provider.noSignIn": "Oturum açmak gerekmez",
   "onboarding.provider.more": "Daha fazla sağlayıcı",

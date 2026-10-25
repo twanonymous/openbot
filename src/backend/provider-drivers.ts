@@ -7,7 +7,6 @@ import {
   type AgentModelOption,
   type AgentProviderId,
   DEFAULT_PROMPT_CACHE_TTL,
-  type KeyOnlyProviderId,
   type PromptCacheTtl,
 } from "@openbot/contracts/ipc";
 import { sourceText } from "@openbot/i18n/source";
@@ -46,6 +45,7 @@ import { clineFreeModels } from "./cline-free-models";
 import { readCursorUsage } from "./cursor-usage";
 import { CustomAcpAgentsClient, type CustomAgentConfig, type CustomAgentSource } from "./custom-acp-agents-client";
 import { GrokAgentClient } from "./grok-client";
+import { readMagpieGateway } from "./magpie";
 import type { McpOAuthAuthority } from "./mcp-oauth-provider";
 import type { McpOAuthProxySettingsStore } from "./mcp-oauth-proxy";
 import type { McpDropReporter, McpEndpointSource, McpServerSource, McpToolRuntimeSource } from "./mcp-provider-shapes";
@@ -58,7 +58,7 @@ import {
   openCodeSignInMessage,
 } from "./opencode-config";
 import { readOpenCodeGoUsage } from "./opencode-usage";
-import { PiAgentClient } from "./pi-client";
+import { PiAgentClient, type PiClientProviderId } from "./pi-client";
 import {
   antigravityStatePaths,
   clineStatePaths,
@@ -484,9 +484,12 @@ export interface BuiltInProviderDriver {
   validateAccount(account: NonNullable<AccountReadResult["account"]>): void;
 }
 
-/** Pi and the key-only providers run the same Pi client. A key-only provider adds its key extension. */
+/**
+ * Pi, the key-only providers and Magpie run the same Pi client. A key-only provider adds its key
+ * extension, and Magpie the extension that registers the gateway.
+ */
 function piClient(
-  provider: "pi" | KeyOnlyProviderId,
+  provider: PiClientProviderId,
   cli: AgentCliInfo,
   timeout: number,
   context: ProviderClientContext,
@@ -515,12 +518,14 @@ function piClient(
   });
 }
 
-function piKeyProvider(provider: "pi" | KeyOnlyProviderId, context: ProviderClientContext) {
-  return provider === "pi" ? {} : { keyProvider: { id: provider, apiKey: () => context.apiKey(provider) } };
+function piKeyProvider(provider: PiClientProviderId, context: ProviderClientContext) {
+  if (provider === "pi") return {};
+  if (provider === "magpie") return { magpie: { gateway: () => readMagpieGateway() } };
+  return { keyProvider: { id: provider, apiKey: () => context.apiKey(provider) } };
 }
 
 function piProfileClient(
-  provider: "pi" | KeyOnlyProviderId,
+  provider: PiClientProviderId,
   cli: AgentCliInfo,
   timeout: number,
   context: ProviderClientContext,
@@ -564,6 +569,17 @@ export const BUILT_IN_PROVIDER_DRIVERS: readonly BuiltInProviderDriver[] = [
     createClient: (cli, timeout, context, confinement) => piClient("deepseek", cli, timeout, context, confinement),
     createProfileClient: (cli, timeout, context) => piProfileClient("deepseek", cli, timeout, context),
     authState: (account) => ({ kind: "deepseek", email: account?.email ?? null }),
+    validateAccount: () => undefined,
+  },
+  {
+    id: "magpie",
+    // No key: the provider has models while the user's Magpie gateway answers. Connect checks again.
+    signIn: { kind: "external" },
+    cliProvider: "pi",
+    resolveCli: resolvePiCli,
+    createClient: (cli, timeout, context, confinement) => piClient("magpie", cli, timeout, context, confinement),
+    createProfileClient: (cli, timeout, context) => piProfileClient("magpie", cli, timeout, context),
+    authState: (account) => ({ kind: "magpie", email: account?.email ?? null }),
     validateAccount: () => undefined,
   },
   {

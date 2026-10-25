@@ -1,10 +1,13 @@
+import { createHash } from "node:crypto";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { KeyOnlyProviderId } from "@openbot/contracts/agent-providers";
+import { MAGPIE_API_KEY } from "@openbot/contracts/ipc";
 import { Effect } from "effect";
+import type { MagpieGatewayInfo } from "./magpie";
 import type { PiMcpExtension } from "./pi-mcp";
-import { providerCall } from "./provider-client-effects";
+import { type ProviderClientOperationError, providerCall } from "./provider-client-effects";
 
 // Each extension takes the key from the environment and removes it before a tool can start a child
 // process. The key is never written to the extension file. Pi runs an extension again when it
@@ -75,4 +78,96 @@ export const createPiKeyExtension = Effect.fn("PiKeyProviders.createExtension")(
     secrets: [key],
     close: () => providerCall(() => rm(folder, { recursive: true, force: true })),
   } satisfies PiMcpExtension;
+});
+
+const MAGPIE_VARIABLE = "OPENBOT_PI_MAGPIE";
+
+// Magpie is a gateway on this computer. Pi has no Magpie provider, so this extension registers one
+// with the gateway's address and models, which OpenBot reads before each spawn. The app key is a
+// public name, not a secret. Pi runs an extension again when it switches sessions: each run reads the
+// session file again, so `X-Magpie-Session` names the thread that the process runs. Magpie routes
+// the requests of one session together.
+const MAGPIE_SOURCE = `import { readFileSync } from "node:fs";
+export default function (pi) {
+  const slot = Symbol.for("openbot.pi.magpie");
+  globalThis[slot] ??= process.env.${MAGPIE_VARIABLE};
+  delete process.env.${MAGPIE_VARIABLE};
+  let config;
+  try {
+    config = JSON.parse(globalThis[slot] ?? "");
+  } catch {
+    return;
+  }
+  if (!config || !Array.isArray(config.models) || config.models.length === 0) return;
+  let session = "";
+  try {
+    session = readFileSync(config.sessionFile, "utf8").trim();
+  } catch {}
+  const piLevels = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+  const model = (entry) => {
+    const levels = Array.isArray(entry.levels) ? entry.levels : [];
+    const thinkingLevelMap = Object.fromEntries(
+      piLevels.map((level) => {
+        if (level === "off") return [level, levels.includes("none") ? "none" : levels.includes("off") ? "off" : null];
+        return [level, levels.includes(level) ? level : null];
+      }),
+    );
+    return {
+      id: entry.id,
+      name: entry.id,
+      reasoning: levels.length > 0,
+      input: ["text"],
+      contextWindow: 200000,
+      maxTokens: 32000,
+      cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+      ...(levels.length > 0 ? { thinkingLevelMap } : {}),
+    };
+  };
+  pi.registerProvider("magpie", {
+    baseUrl: config.baseUrl,
+    api: "openai-completions",
+    apiKey: "${MAGPIE_API_KEY}",
+    headers: session ? { "X-Magpie-Session": session } : {},
+    models: config.models.map(model),
+  });
+}
+`;
+
+/** The `X-Magpie-Session` value of a Pi session file: stable for the thread, and no path. */
+export function magpieSessionId(sessionFile: string): string {
+  return `openbot-${createHash("sha256").update(sessionFile).digest("hex").slice(0, 32)}`;
+}
+
+export interface PiMagpieExtension extends PiMcpExtension {
+  /** Names the thread for the next run of the extension: at the start or at a session switch. */
+  setSession(sessionFile: string): Effect.Effect<void, ProviderClientOperationError>;
+}
+
+/** Owns one temporary extension that registers the `magpie` provider in Pi for one process. */
+export const createPiMagpieExtension = Effect.fn("PiKeyProviders.createMagpieExtension")(function* (
+  gateway: MagpieGatewayInfo,
+  directory?: string,
+) {
+  const root = directory ?? tmpdir();
+  yield* providerCall(() => mkdir(root, { recursive: true, mode: 0o700 }));
+  const folder = yield* providerCall(() => mkdtemp(join(root, "openbot-pi-")));
+  const path = join(folder, "magpie.mjs");
+  const sessionFile = join(folder, "session");
+  yield* providerCall(async () => {
+    await writeFile(path, MAGPIE_SOURCE, { mode: 0o600 });
+    await writeFile(sessionFile, "", { mode: 0o600 });
+  }).pipe(Effect.onError(() => providerCall(() => rm(folder, { recursive: true, force: true })).pipe(Effect.orDie)));
+  const config = {
+    baseUrl: gateway.baseUrl,
+    sessionFile,
+    models: gateway.models.map((model) => ({ id: model.id, levels: model.reasoningLevels })),
+  };
+  return {
+    path,
+    environment: { [MAGPIE_VARIABLE]: JSON.stringify(config) },
+    secrets: [],
+    setSession: (session: string) =>
+      providerCall(() => writeFile(sessionFile, magpieSessionId(session), { mode: 0o600 })),
+    close: () => providerCall(() => rm(folder, { recursive: true, force: true })),
+  } satisfies PiMagpieExtension;
 });

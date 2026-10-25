@@ -7,15 +7,14 @@ import {
   checkMagpieHealth,
   type FetchLike,
   listMagpieModels,
-  MagpieGateway,
-  type MagpieProcess,
   magpieSettingsPaths,
   parseMagpieModels,
   parseMagpiePort,
   resolveMagpiePort,
-  shouldStartMagpie,
-} from "./magpie-gateway";
+} from "../backend/magpie";
+import { MagpieGateway, type MagpieProcess, shouldStartMagpie } from "./magpie-gateway";
 import { scanTargets } from "./provider-detection";
+import { isPeerHiddenProvider } from "./team-api/provider-visibility";
 
 const posix = { platform: "linux" as const, home: "/home/u", env: {} };
 const windows = {
@@ -192,5 +191,11 @@ describe("Magpie in the local server scan", () => {
       apiKey: MAGPIE_API_KEY,
     });
     expect(targets.find((target) => target.id === "ollama")?.apiKey).toBeUndefined();
+  });
+});
+
+describe("Magpie and Team API peers", () => {
+  it("hides the magpie provider from peers on every protocol", () => {
+    for (const protocol of [1, 7, 8, 9]) expect(isPeerHiddenProvider("magpie", protocol)).toBe(true);
   });
 });
