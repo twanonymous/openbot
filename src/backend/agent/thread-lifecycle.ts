@@ -118,6 +118,11 @@ export interface ThreadLifecycleHooks {
   reportMcpDrops(provider: AgentProvider, drops: readonly McpServerDrop[]): void;
   /** An earlier session whose work steps could not be read. The handoff goes without them. */
   logHandoffReadFailure(provider: AgentProvider, error: unknown): void;
+  /**
+   * A new provider session starts from this handoff, so the model of the session before it loses its
+   * context. Called after the new session is bound; it must return at once and never throw.
+   */
+  contextHandedOff?(agentId: string, handoff: string, sessionId: string): void;
 }
 
 export interface ThreadLifecycleOptions {
@@ -611,6 +616,7 @@ export class ThreadLifecycle {
     this.#sessionStarts.set(key, count);
     logger.info("Started a provider session.", { provider: client.provider, reason: startReason, count });
     const externalThreadId = response.thread.id;
+    let handedOff: string | null = null;
     const prepared = yield* Effect.result(
       Effect.gen({ self: this }, function* () {
         if (client.provider === "codex") {
@@ -637,6 +643,7 @@ export class ThreadLifecycle {
           // whose first turn can no longer recover the existing conversation context.
           yield* threadIo(() => writeFile(this.handoffPath(externalThreadId), handoff, { mode: 0o600 }));
           this.#pendingHandoffs.set(externalThreadId, handoff);
+          handedOff = handoff;
         }
         yield* threadStep(() => {
           // The provider that made the ID, not the agent's: the agent can change provider while
@@ -669,6 +676,13 @@ export class ThreadLifecycle {
     this.#conversation.markThreadLoaded(externalThreadId, client);
     this.#conversation.ensureSnapshot(agent.id, publicThreadId);
     if (replaced) yield* this.#archiveReplacedSession(client, replaced.externalSessionId);
+    if (handedOff) {
+      try {
+        this.#hooks.contextHandedOff?.(agent.id, handedOff, externalThreadId);
+      } catch (error) {
+        logger.warn("Could not start the memory capture of a handoff.", { error });
+      }
+    }
     return externalThreadId;
   });
 

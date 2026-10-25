@@ -234,6 +234,7 @@ import {
   startMcpOAuthRedirectServer,
 } from "./mcp-oauth-redirect-server";
 import { McpOAuthStore } from "./mcp-oauth-store";
+import { MemoryCapturePreferenceStore } from "./memory-capture-preference-store";
 import { MessagingCredentialStore } from "./messaging-credential-store";
 import { NotificationPreferenceStore } from "./notification-preference-store";
 import { OnePasswordConnectorService } from "./onepassword-connector-service";
@@ -340,6 +341,7 @@ const PUSH_NOTIFICATION_FILE = "openbot-push-notifications-v1.json";
 const BUSY_MESSAGE_MODE_PREFERENCE_FILE = "openbot-busy-message-mode-v1.json";
 const AGENT_DEFAULTS_PREFERENCE_FILE = "openbot-agent-defaults-v1.json";
 const AGENT_MEMORY_LIMIT_PREFERENCE_FILE = "openbot-agent-memory-limit-v1.json";
+const MEMORY_CAPTURE_PREFERENCE_FILE = "openbot-memory-capture-v1.json";
 const SERVER_TIMEZONE_PREFERENCE_FILE = "openbot-server-timezone-v1.json";
 const PROMPT_CACHE_TTL_PREFERENCE_FILE = "openbot-prompt-cache-ttl-v1.json";
 const REMOTE_SESSION_REUSE_PREFERENCE_FILE = "openbot-remote-session-reuse-preference-v1.json";
@@ -545,6 +547,7 @@ export interface ApplicationServices {
   busyMessageMode: BusyMessageModePreferenceStore;
   agentDefaults: AgentDefaultsPreferenceStore;
   agentMemoryLimit: AgentMemoryLimitSetting;
+  memoryCapture: MemoryCapturePreferenceStore;
   agentAccess: AgentAccessStore;
   serverTimezone: ServerTimezonePreferenceStore;
   promptCacheTtl: PromptCacheTtlPreferenceStore;
@@ -1136,6 +1139,8 @@ export async function createApplicationServices({
     join(app.getPath("userData"), AGENT_MEMORY_LIMIT_PREFERENCE_FILE),
   );
   await runCauseEffect(agentMemoryLimit.load());
+  const memoryCapture = new MemoryCapturePreferenceStore(join(app.getPath("userData"), MEMORY_CAPTURE_PREFERENCE_FILE));
+  await runCauseEffect(memoryCapture.load());
   const agentAccess = new AgentAccessStore(join(app.getPath("userData"), AGENT_ACCESS_FILE));
   if (!(await runCauseEffect(agentAccess.load())))
     logger.warn("The roles file did not load. Members get no access to agents until an admin saves the roles.");
@@ -1694,6 +1699,7 @@ export async function createApplicationServices({
     approvalAutomation,
     busyMessageMode: () => busyMessageMode.get().mode,
     agentMemoryLimit: () => agentMemoryLimit.get().limit,
+    memoryCapture: () => memoryCapture.get().enabled,
     timezone: () => serverTimezone.effective(),
     // `workflowTriggers` is built later, after the workflows.
     extraRoutineSources: () => (workflowTriggers ? [workflowTriggers] : []),
@@ -2978,6 +2984,7 @@ export async function createApplicationServices({
     busyMessageMode,
     agentDefaults,
     agentMemoryLimit: agentMemoryLimitSetting,
+    memoryCapture,
     agentAccess,
     serverTimezone,
     promptCacheTtl,

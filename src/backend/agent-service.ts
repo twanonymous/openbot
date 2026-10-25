@@ -158,6 +158,7 @@ import { ImageGenRuntime } from "./agent/image-gen-runtime";
 import { MailboxSync } from "./agent/mailbox-sync";
 import { type GitHubConnectorSource, McpGateway, type TestMcpServerOptions } from "./agent/mcp-gateway";
 import { mcpServersFromGateway } from "./agent/mcp-tools";
+import { MemoryCapture } from "./agent/memory-capture";
 import { MemoryHold } from "./agent/memory-hold";
 import { MemoryRecall } from "./agent/memory-recall";
 import {
@@ -323,6 +324,11 @@ export interface AgentServiceOptions {
    */
   agentMemoryLimit?: () => number;
   /**
+   * Whether OpenBot saves durable facts from a conversation before a provider session hands it off:
+   * the app setting. Omitted, on.
+   */
+  memoryCapture?: () => boolean;
+  /**
    * The server timezone, for a routine an agent creates without a zone from the tool call or the
    * sender. The main process owns the preference. Omitted, the host system zone.
    */
@@ -405,6 +411,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
   readonly #browser: AgentBrowserHost;
   readonly #reader: ConversationReader;
   readonly #memories: AgentMemories;
+  readonly #capture: MemoryCapture;
   readonly #waits: AgentWaits;
   readonly #tasks: AgentTasks;
   readonly #tables: AgentTables | null;
@@ -549,6 +556,14 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
       ...(options.agentMemoryLimit ? { limit: options.agentMemoryLimit } : {}),
       listAgentIds: () => this.listAgents().map((agent) => agent.id),
+    });
+    this.#capture = new MemoryCapture({
+      enabled: () => (options.memoryCapture?.() ?? true) && !this.#stopping,
+      generate: (agentId, prompt) => this.#captureText(agentId, prompt),
+      known: (agentId) =>
+        [...this.#memories.listUser(), ...this.#memories.listFor(agentId)].map((memory) => memory.text),
+      save: (agentId, facts, sourceId) => this.#memories.saveCaptured(agentId, facts, sourceId),
+      emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
     });
     // One timer for every routine owner. The sources are read lazily because `channels` and its
     // scheduler are built further down, and because an owner's earliest routine changes constantly.
@@ -922,6 +937,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
         reportMcpDrops: (provider, drops) => this.#mcp.reportDrops(provider, drops),
         logHandoffReadFailure: (provider, error) =>
           logger.warn("Could not read the work steps of an earlier provider session.", { provider, error }),
+        contextHandedOff: (agentId, handoff, sessionId) => this.#capture.capture(agentId, handoff, sessionId),
       },
     });
     this.#boot = new BootRecovery({
@@ -2080,6 +2096,37 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
     },
     Effect.mapError((failure) => new AgentLifecycleFailed({ operation: "ask side question", cause: failure.cause })),
   ).bind(this);
+
+  /**
+   * The memory capture of a handoff, with the agent's own model. Like a side question, the generation
+   * has no tools, no session and no thread. It gives way to other generations and to a usage limit:
+   * the capture is skipped, never queued.
+   */
+  #captureText(agentId: string, prompt: string): Effect.Effect<string, Error | ProfileGenerationFailed> {
+    return Effect.gen({ self: this }, function* () {
+      const skipped = (reason: string) => new Error(`Memory capture skipped: ${reason}.`);
+      const agent = this.listAgents().find((candidate) => candidate.id === agentId);
+      if (!agent) return yield* Effect.fail(skipped("the agent is gone"));
+      if (this.#stopping || this.#profileClients.busy() || !this.#usageLimits.mayDrain(agentId))
+        return yield* Effect.fail(skipped("generations are busy or limited"));
+      yield* this.#providers
+        .ensureProvider(agent.provider)
+        .pipe(Effect.mapError((failure) => skipped(String(failure))));
+      const model = this.#endpoints
+        .available()
+        .find((candidate) => candidate.provider === agent.provider && candidate.id === agent.model);
+      if (!model) return yield* Effect.fail(skipped("the model is not available"));
+      const client = this.#providers.createProfileClient(agent.provider);
+      return yield* this.#profileClients.run(client, (cancelled) =>
+        generateTextWithoutTools(
+          client,
+          { ...model, defaultReasoningEffort: agent.reasoningEffort },
+          prompt,
+          () => cancelled() || this.#stopping,
+        ),
+      );
+    });
+  }
 
   /**
    * Answers one model step of a workflow. Like a side question, the generation has no tools, no
