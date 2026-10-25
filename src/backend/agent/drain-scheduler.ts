@@ -712,7 +712,7 @@ export class DrainScheduler {
         try {
           recalled = recallText ? (this.#recall?.block(agent.id, providerThreadId, recallText) ?? null) : null;
         } catch (error) {
-          this.#hooks.emitError("memory_recall_failed", error, agent.id);
+          logger.warn("Could not recall memories for a message.", { error });
         }
         return recalled ? [{ type: "text" as const, text: recalled }, ...withHandoff] : withHandoff;
       };

@@ -563,7 +563,9 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
       known: (agentId) =>
         [...this.#memories.listUser(), ...this.#memories.listFor(agentId)].map((memory) => memory.text),
       save: (agentId, facts, sourceId) => this.#memories.saveCaptured(agentId, facts, sourceId),
-      emitError: (code, error, agentId) => this.#emitError(code, error, agentId),
+      // A capture is optional background work: a failure goes to the log, not to the user.
+      emitError: (code, error, agentId) =>
+        logger.warn("Could not capture memories from a handoff.", { code, agentId, error }),
     });
     // One timer for every routine owner. The sources are read lazily because `channels` and its
     // scheduler are built further down, and because an owner's earliest routine changes constantly.

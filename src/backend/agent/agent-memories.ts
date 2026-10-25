@@ -239,8 +239,9 @@ export class AgentMemories {
       if (store.count(ownerId) >= store.limit()) continue;
       try {
         if (!store.saveAutomatic({ agentId: ownerId, text, sourceTurnId })) continue;
-      } catch (error) {
-        this.#emitError("memory_capture_failed", error, agentId);
+      } catch {
+        // A fact that cannot be saved, such as one past a cap that a concurrent save filled, is
+        // skipped. The capture is optional: the others are still saved.
         continue;
       }
       known.add(normalizeMemoryText(text));
