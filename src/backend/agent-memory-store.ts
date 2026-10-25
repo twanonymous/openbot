@@ -15,6 +15,7 @@ import type {
 import { sourceText } from "@openbot/i18n/source";
 import { Schema } from "effect";
 import { initializeAgentMemorySelection } from "./agent-memory-selection";
+import { cjkBigrams, cjkMatchScore } from "./cjk-memory-match";
 import { databaseRows, requiredNumberColumn, requiredStringColumn } from "./database/database-rows";
 import { MemoryStore, type MemoryTables, type SaveMemoryInput } from "./memory-store";
 import type { OpenBotDatabase } from "./openbot-database";
@@ -50,6 +51,9 @@ export interface AgentMemorySearchResult {
 export interface AgentMemoryListPage extends AgentMemorySearchResult {
   nextCursor: string | null;
 }
+
+/** The most memories of one owner that a CJK search reads. Above any cap a user can choose. */
+const CJK_SCAN_ROWS = 1024;
 
 function agentMemoryTables(limit: () => number): MemoryTables {
   return {
@@ -255,7 +259,7 @@ export class SelectableMemoryStore extends MemoryStore {
     }
     const expression = [...new Set(terms)].map((term) => `"${term}"`).join(" OR ");
     const search = this.#selection.search;
-    const ids = databaseRows(
+    const ftsIds = databaseRows(
       this.database.connection
         .prepare(
           `SELECT m.memory_id FROM ${search} JOIN ${this.tables.table} m ON m.rowid = ${search}.rowid
@@ -264,6 +268,7 @@ export class SelectableMemoryStore extends MemoryStore {
         )
         .all(expression, agentId, limit + 1),
     ).map((row) => requiredStringColumn(row, "memory_id"));
+    const ids = this.#withCjkMatches(agentId, query, ftsIds, limit);
     const result: AgentMemorySearchResult = { memories: [], hasMore: ids.length > limit };
     for (const id of ids.slice(0, limit)) {
       const memory = this.#retrieved(agentId, id);
@@ -277,6 +282,37 @@ export class SelectableMemoryStore extends MemoryStore {
       result.memories.push(memory);
     }
     return result;
+  }
+
+  /**
+   * The word matches, with the memories that share character pairs with the CJK text of the query
+   * merged in: see `cjk-memory-match.ts`. A memory that both find ranks first, then more pairs before
+   * fewer, then the word match order, then the newest. A query with no CJK text keeps the word matches.
+   */
+  #withCjkMatches(ownerId: string, query: string, ftsIds: readonly string[], limit: number): string[] {
+    const bigrams = cjkBigrams(query);
+    if (bigrams.length === 0) return [...ftsIds];
+    const scores = new Map<string, number>();
+    for (const [index, id] of ftsIds.entries()) scores.set(id, 1 + (ftsIds.length - index) / (ftsIds.length + 1));
+    const rows = databaseRows(
+      this.database.connection
+        .prepare(
+          `SELECT memory_id, text FROM ${this.tables.table} WHERE ${this.tables.ownerColumn} = ?
+       ORDER BY updated_at DESC, memory_id LIMIT ${CJK_SCAN_ROWS}`,
+        )
+        .all(ownerId),
+    );
+    for (const row of rows) {
+      const score = cjkMatchScore(requiredStringColumn(row, "text"), bigrams);
+      if (score === 0) continue;
+      const id = requiredStringColumn(row, "memory_id");
+      scores.set(id, (scores.get(id) ?? 0) + score);
+    }
+    // A stable sort: equal scores keep the word match order, then the newest first.
+    return [...scores]
+      .sort(([, left], [, right]) => right - left)
+      .map(([id]) => id)
+      .slice(0, limit + 1);
   }
 
   listPage(agentId: string, after: string | null = null): AgentMemoryListPage {
