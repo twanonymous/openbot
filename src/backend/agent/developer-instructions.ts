@@ -245,13 +245,39 @@ export function memoryContextUpdate(delivered: MemoryContext | null, current: Me
 }
 
 /**
- * Whether a user text block is one that `memoryContextUpdate` or `sectionTeammatesUpdate` wrote, not
- * text that a person wrote.
+ * Whether a user text block is one that `memoryContextUpdate`, `sectionTeammatesUpdate` or
+ * `relevantMemoriesBlock` wrote, not text that a person wrote.
  */
 export function isTurnContextBlock(text: string): boolean {
-  return [MEMORY_BLOCK_START, MEMORY_UPDATE_START, TEAMMATES_BLOCK_START].some((start) =>
+  return [MEMORY_BLOCK_START, MEMORY_UPDATE_START, TEAMMATES_BLOCK_START, RELEVANT_MEMORIES_START].some((start) =>
     text.startsWith(`${start}\n`),
   );
+}
+
+const RELEVANT_MEMORIES_START = "<openbot_relevant_memories>";
+const RELEVANT_MEMORIES_END = "</openbot_relevant_memories>";
+
+/** Saved memories that a word search found for the incoming message. Sent as a text block of its own. */
+export function relevantMemoriesBlock(
+  memories: readonly { id: string; scope: "agent" | "user"; text: string }[],
+): string {
+  return [
+    RELEVANT_MEMORIES_START,
+    `OpenBot found these saved memories for the next message. They may not apply. Scope user is a fact about the user that every agent shares; scope agent is your own. ${MEMORY_LABEL}`,
+    tagSafe(JSON.stringify(memories)),
+    RELEVANT_MEMORIES_END,
+  ].join("\n");
+}
+
+/**
+ * The prompt without a leading relevant-memories block. A provider that joins the text blocks of a
+ * turn keeps the block in its own history, before the text that the user wrote.
+ */
+export function withoutRelevantMemories(text: string): string {
+  if (!text.startsWith(`${RELEVANT_MEMORIES_START}\n`)) return text;
+  const end = text.indexOf(`\n${RELEVANT_MEMORIES_END}`);
+  if (end < 0) return text;
+  return text.slice(end + RELEVANT_MEMORIES_END.length + 1).replace(/^\n+/u, "");
 }
 
 export function developerInstructions(

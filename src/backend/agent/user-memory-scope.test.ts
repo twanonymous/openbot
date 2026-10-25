@@ -116,9 +116,15 @@ describe("user memory scope", () => {
       "capture-1",
     );
     expect(saved).toBe(2);
-    expect(memories.listUser().map((memory) => [memory.text, memory.origin])).toEqual([
-      ["Kevin runs on Sundays.", "automatic"],
+    // Two saves in one millisecond have no fixed order.
+    expect(
+      memories
+        .listUser()
+        .map((memory) => [memory.text, memory.origin])
+        .sort(),
+    ).toEqual([
       ["Kevin likes oolong tea.", "manual"],
+      ["Kevin runs on Sundays.", "automatic"],
     ]);
     expect(memories.listFor("chief").map((memory) => memory.text)).toEqual(["The release branch is cut on Fridays."]);
     expect(memories.recall("user", "user", "Plans for Sundays", 5).map((memory) => memory.text)).toEqual([

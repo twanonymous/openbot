@@ -20,6 +20,7 @@ import {
 import type { DuplicationGate } from "./duplication-gate";
 import type { MailboxSync } from "./mailbox-sync";
 import type { MemoryHold } from "./memory-hold";
+import type { MemoryRecall } from "./memory-recall";
 import type { ProfileSave } from "./profile-save";
 import { isPlanLimitDiagnostic } from "./provider-diagnostics";
 import type { ProviderRuntime } from "./provider-runtime";
@@ -129,6 +130,8 @@ export interface DrainSchedulerOptions {
   hooks: DrainHooks;
   channels?: ChannelService;
   messaging?: MessagingThreads;
+  /** Saved memories that fit an incoming message. Omitted, no message gets them. */
+  recall?: MemoryRecall;
 }
 
 /**
@@ -165,6 +168,7 @@ export class DrainScheduler {
   readonly #hooks: DrainHooks;
   readonly #channels: ChannelService | undefined;
   readonly #messaging: MessagingThreads | undefined;
+  readonly #recall: MemoryRecall | undefined;
   readonly #drainingLanes = new Set<string>();
   /**
    * Agents whose channel task a spent plan refused and gave back to its channel. Their queue can be
@@ -208,6 +212,7 @@ export class DrainScheduler {
     this.#hooks = options.hooks;
     this.#channels = options.channels;
     this.#messaging = options.messaging;
+    this.#recall = options.recall;
     this.#slots = new TurnSlots({
       limit: () => this.#memory.turnLimit(),
       lanes: () =>
@@ -682,15 +687,34 @@ export class DrainScheduler {
       // session can change from here to the retry below, as when the provider cannot resume it.
       const delta = channelDelivery ? channels?.delta(delivery.id) : undefined;
       const deltaInput = delta ? promptInput(delta.text) : null;
+      // The memories of the OpenBot user stay out of a channel and an external conversation: other
+      // people read what the agent writes there.
+      const recallText =
+        channelDelivery || messagingDelivery
+          ? ""
+          : batch
+              .map((item) => item.delivery.text)
+              .join("\n")
+              .trim();
       const inputForThread = (providerThreadId: string) => {
         const input = deltaInput && channels?.sendsDelta(delivery.id, providerThreadId) ? deltaInput : completeInput;
         const handoff = this.#threads.consumePendingHandoff(providerThreadId);
-        if (!handoff) return input;
-        return input.map((item, index) =>
-          index === 0 && item.type === "text"
-            ? { ...item, text: `${handoff}${CURRENT_MESSAGE_SEPARATOR}${item.text}` }
-            : item,
-        );
+        const withHandoff = handoff
+          ? input.map((item, index) =>
+              index === 0 && item.type === "text"
+                ? { ...item, text: `${handoff}${CURRENT_MESSAGE_SEPARATOR}${item.text}` }
+                : item,
+            )
+          : input;
+        // A block of its own, before the message, so that history readers can tell it from the text.
+        // A recall failure must not stop the turn: the message goes without the block.
+        let recalled: string | null = null;
+        try {
+          recalled = recallText ? (this.#recall?.block(agent.id, providerThreadId, recallText) ?? null) : null;
+        } catch (error) {
+          this.#hooks.emitError("memory_recall_failed", error, agent.id);
+        }
+        return recalled ? [{ type: "text" as const, text: recalled }, ...withHandoff] : withHandoff;
       };
 
       for (const { delivery: item } of batch) {

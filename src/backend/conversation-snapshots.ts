@@ -3,6 +3,7 @@ import type { AgentProviderId, ConversationMessage, ConversationSnapshot } from 
 import { isImageGenerationAspectRatio, ROUTINE_QUIET_ANSWER_ITEM_TYPE } from "@openbot/contracts/ipc";
 import { isString } from "@openbot/contracts/runtime-values";
 import { displayMessageReferences, type TeammatePrompt, teammatePrompts } from "./agent/delivery-content";
+import { isTurnContextBlock, withoutRelevantMemories } from "./agent/developer-instructions";
 import { imageGenerationFailure, isImageGenerationItem } from "./agent/image-generation";
 import type { DeliveryContext } from "./mailbox-store";
 import type { ThreadItem } from "./protocol";
@@ -35,10 +36,13 @@ export function messagesFromThreadItems(
     const itemIndex = itemOffset + pageIndex;
     const createdAt = new Date(baseTime + itemIndex).toISOString();
     if (item.type === "userMessage" && isString(item.id)) {
-      const text = (item.content ?? [])
-        .filter((part) => part.type === "text" && isString(part.text))
-        .map((part) => part.text)
-        .join("\n");
+      // A relevant-memories block is OpenBot's, not the user's: a part of its own, or the start of the text.
+      const text = withoutRelevantMemories(
+        (item.content ?? [])
+          .filter((part) => part.type === "text" && isString(part.text) && !isTurnContextBlock(part.text))
+          .map((part) => part.text)
+          .join("\n"),
+      );
       const delivery = item.clientId ? findDelivery(item.clientId) : null;
       if (!text) continue;
       const row = { id: item.id, turnId: turn.id, text, createdAt };

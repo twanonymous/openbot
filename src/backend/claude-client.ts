@@ -969,6 +969,7 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       : [
           memory ? memoryContextUpdate(memory.delivered, memory.current) : null,
           teammates ? sectionTeammatesUpdate(teammates.delivered, teammates.current) : null,
+          ...readInputContext(params),
         ].filter((block): block is string => block !== null);
     runtime.input.push({
       type: "user",
@@ -2094,13 +2095,24 @@ function parseAuthStatus(stdout: unknown): DynamicRecord | null {
   }
 }
 
+/** The text that the turn sends, without the context blocks that OpenBot put in front of it. */
 function readInputText(params: unknown): string {
-  if (!isRecord(params) || !Array.isArray(params.input)) return "";
+  return inputTexts(params)
+    .filter((text) => !isTurnContextBlock(text))
+    .join("\n");
+}
+
+/** The context blocks of the input, such as the relevant memories. They go as text blocks of their own. */
+function readInputContext(params: unknown): string[] {
+  return inputTexts(params).filter(isTurnContextBlock);
+}
+
+function inputTexts(params: unknown): string[] {
+  if (!isRecord(params) || !Array.isArray(params.input)) return [];
   return params.input
     .filter(isRecord)
-    .filter((item) => item.type === "text" && isString(item.text))
-    .map((item) => item.text)
-    .join("\n");
+    .map((item) => (item.type === "text" && isString(item.text) ? item.text : null))
+    .filter((text): text is string => text !== null);
 }
 
 function messageText(message: unknown): string {
