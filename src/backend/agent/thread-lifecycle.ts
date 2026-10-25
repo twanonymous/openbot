@@ -81,6 +81,13 @@ const logger = createOpenBotLogger("thread-lifecycle");
  */
 const CODEX_MCP_ADAPTER_VERSION = 7;
 
+/**
+ * The smallest context, in tokens, that a cold Claude session starts over from a handoff instead of
+ * resuming. A new session pays for its system prompt, tools and the handoff (up to 32,000 characters)
+ * anyway, so a smaller transcript costs about the same to resume and keeps the provider's own steps.
+ */
+export const COLD_RESUME_HANDOFF_TOKENS = 40_000;
+
 /** What a provider other than Codex, or a Codex with no file to read, has in its own files. */
 const NO_CODEX_OWN_SERVERS: CodexOwnServers = { disabled: {}, transports: {} };
 
@@ -184,6 +191,11 @@ export class ThreadLifecycle {
    * its own thread and a channel execution thread at the same time.
    */
   readonly #pendingStarts = new Map<string, number>();
+  /**
+   * Agents a long plan limit let go. Their next start of their own chat replaces a large Claude
+   * session with a handoff instead of resuming it: see `ensureThread`. Kept in memory, like the limit.
+   */
+  readonly #coldResumes = new Set<string>();
 
   constructor(options: ThreadLifecycleOptions) {
     this.#store = options.store;
@@ -336,6 +348,15 @@ export class ThreadLifecycle {
     this.#pendingHandoffs.clear();
     this.#pendingRuntimeRefreshes.clear();
     this.#pendingStarts.clear();
+    this.#coldResumes.clear();
+  }
+
+  /**
+   * A plan limit that outlived every prompt cache let these agents go. Their sessions are cold: a
+   * resume reads the whole transcript again at the cache-write price, once per agent.
+   */
+  markColdResume(agentIds: readonly string[]): void {
+    for (const agentId of agentIds) this.#coldResumes.add(agentId);
   }
 
   readonly ensureThread = Effect.fn("ThreadLifecycle.ensureThread")(function* (
@@ -381,6 +402,19 @@ export class ThreadLifecycle {
         return replacement;
       }
       if (this.#conversation.loadedClientFor(session.externalSessionId) !== client) {
+        // After a long plan limit the cache is gone, so `--resume` would bill the whole transcript as a
+        // cache write before the first token. A large session starts over from the bounded handoff instead:
+        // the files, branches and OpenBot transcript stay; only the provider's own copy is left behind.
+        if (publicThreadId === currentAgent.threadId && this.#coldResumes.delete(currentAgent.id)) {
+          const usedTokens = this.#compaction.usedTokens(session.externalSessionId);
+          if (client.provider === "claude" && usedTokens !== null && usedTokens >= COLD_RESUME_HANDOFF_TOKENS) {
+            const rotated = yield* this.rotateProviderSession(currentAgent.id, client, session.externalSessionId);
+            if (rotated) {
+              this.#hooks.logRecovery(currentAgent.id, client.provider, "replaced");
+              return rotated;
+            }
+          }
+        }
         const resumed = yield* Effect.result(this.resumeThread(currentAgent, client, session.externalSessionId));
         if (Result.isFailure(resumed)) {
           if (!isMissingProviderSessionError(resumed.failure.cause, client.provider)) return yield* resumed.failure;

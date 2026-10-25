@@ -1123,6 +1123,7 @@ export class AgentService extends EventEmitter<AgentServiceEvents> {
             Effect.forkIn(this.#scope, { startImmediately: true }),
             Effect.asVoid,
           ),
+        coldResume: (agentIds) => this.#threads.markColdResume(agentIds),
         // A channel task that went back to its queue is assigned again only by a pump. An agent that
         // left this model for a backup goes back to it.
         released: (limit) =>

@@ -112,6 +112,11 @@ export class ContextCompaction {
     });
   }
 
+  /** The context the provider last reported for this session, in tokens, or null before any report. */
+  usedTokens(threadId: string): number | null {
+    return this.#display.get(threadId)?.usage?.usedTokens ?? this.#budgets.get(threadId)?.usedTokens ?? null;
+  }
+
   observeUsage(
     threadId: string,
     usedTokens: number,

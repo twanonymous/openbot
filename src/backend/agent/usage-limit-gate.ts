@@ -1,8 +1,7 @@
 import { INPUT_LIMITS } from "@openbot/contracts/input-limits";
-import type { AccountUsage, AgentEvent, AgentRuntimeSnapshot } from "@openbot/contracts/ipc";
+import type { AccountUsage, AgentEvent, AgentRuntimeSnapshot, AgentSummary } from "@openbot/contracts/ipc";
 import { Effect, Exit, Schema, Scope } from "effect";
 import type { AgentProvider } from "../agent-client";
-import type { AgentStore } from "../agent-store";
 import { causeHelpers } from "../effect-boundary";
 import { agentProviderAccount as accountOf, providerForAgent } from "./thread-items";
 
@@ -14,6 +13,20 @@ const USAGE_LIMIT_RECHECK_MS = 15 * 60_000;
 
 /** Time after the reported reset before work starts again, so the provider's clock has passed it too. */
 const RESET_GRACE_MS = 30_000;
+
+/**
+ * Time between the agents a limit lets go. Each first turn after a long wait reads its whole session
+ * again; started together, a few agents spend a large part of the new window within seconds, and a
+ * window that has not really reset refuses them all at once. One at a time, the first refusal closes
+ * the gate before the rest start.
+ */
+export const RELEASE_STAGGER_MS = 20_000;
+
+/**
+ * How long a limit holds before its agents count as cold. The longest prompt cache lasts one hour, so
+ * after that a resumed session is read again at the cache-write price.
+ */
+export const COLD_CACHE_MS = 60 * 60_000;
 
 /**
  * How long a model that failed a turn with a provider error is passed over, so an agent on a backup
@@ -38,10 +51,19 @@ export interface UsageLimitHooks {
   held(agentIds: readonly string[]): Effect.Effect<void>;
   /** A limit ended, after its agents' drains were scheduled. Must not wait for the work it starts. */
   released(limit: UsageLimitKey): Effect.Effect<void>;
+  /**
+   * A limit that held longer than any prompt cache let these agents go: their sessions are cold, so
+   * resuming one reads all of it again uncached. Called before their drains are scheduled.
+   */
+  coldResume?(agentIds: readonly string[]): void;
 }
 
+/** The fields of an agent the gate keys its limits on. */
+type LimitedAgent = Pick<AgentSummary, "id" | "provider" | "model" | "providerAccountId">;
+
 export interface UsageLimitGateOptions {
-  store: AgentStore;
+  /** The agents, as the store lists them; only the fields a limit keys on are read. */
+  store: { list(): readonly LimitedAgent[] };
   hooks: UsageLimitHooks;
 }
 
@@ -60,6 +82,8 @@ interface UsageLimit extends UsageLimitKey {
   /** Epoch seconds, or null while the provider has not said. */
   resetsAt: number | null;
   timer: ReturnType<typeof setTimeout> | null;
+  /** When the plan first refused a turn on this key, in epoch milliseconds. */
+  since: number;
 }
 
 /**
@@ -78,7 +102,7 @@ interface UsageLimit extends UsageLimitKey {
  * move agents set to switch without asking to a backup, and keep them there for a while.
  */
 export class UsageLimitGate {
-  readonly #store: AgentStore;
+  readonly #store: UsageLimitGateOptions["store"];
   readonly #hooks: UsageLimitHooks;
   readonly #limits = new Map<string, UsageLimit>();
   /** Owns the usage reads and the timer runs, so `dispose` stops them. */
@@ -86,6 +110,8 @@ export class UsageLimitGate {
   /** Providers the user was told about in this limit, so a limit that closes again is not announced twice. */
   readonly #announced = new Set<AgentProvider>();
   readonly #failures = new Map<string, ProviderFailure>();
+  /** The staggered drains of released agents that have not started yet. */
+  readonly #releaseTimers = new Set<ReturnType<typeof setTimeout>>();
 
   constructor(options: UsageLimitGateOptions) {
     this.#store = options.store;
@@ -174,7 +200,14 @@ export class UsageLimitGate {
     const turnModel = model ?? agent.model;
     const accountId = accountOf(agent);
     const key = limitKey(provider, accountId, turnModel);
-    const limit = this.#limits.get(key) ?? { provider, accountId, model: turnModel, resetsAt: null, timer: null };
+    const limit = this.#limits.get(key) ?? {
+      provider,
+      accountId,
+      model: turnModel,
+      resetsAt: null,
+      timer: null,
+      since: Date.now(),
+    };
     // A reset already past would release the queue at once into the same refusal.
     const future = (value: number | null) => (value !== null && value * 1_000 > Date.now() ? value : null);
     limit.resetsAt = future(resetsAt) ?? future(limit.resetsAt);
@@ -230,6 +263,8 @@ export class UsageLimitGate {
     this.#limits.clear();
     for (const failure of this.#failures.values()) clearTimeout(failure.timer);
     this.#failures.clear();
+    for (const timer of this.#releaseTimers) clearTimeout(timer);
+    this.#releaseTimers.clear();
     this.#announced.clear();
     yield* Scope.close(this.#scope, Exit.void);
     this.#scope = Scope.makeUnsafe();
@@ -304,9 +339,30 @@ export class UsageLimitGate {
     if (reset && ![...this.#limits.values()].some((other) => other.provider === limit.provider))
       this.#announced.delete(limit.provider);
     this.#hooks.emitRuntimeSnapshot();
-    for (const agent of this.#heldAgents(limit)) this.#hooks.scheduleDrain(agent.id);
+    const held = this.#heldAgents(limit).map((agent) => agent.id);
+    if (held.length > 0 && Date.now() - limit.since >= COLD_CACHE_MS) this.#hooks.coldResume?.(held);
+    this.#scheduleStaggered(held);
     yield* this.#hooks.released({ provider: limit.provider, accountId: limit.accountId, model: limit.model });
   });
+
+  /**
+   * Schedules the first agent's drain now and each next one `RELEASE_STAGGER_MS` later. A drain that
+   * starts after the gate closed again is held by `mayDrain`, so a window that refuses the first turn
+   * spends nothing on the rest.
+   */
+  #scheduleStaggered(agentIds: readonly string[]): void {
+    agentIds.forEach((agentId, index) => {
+      if (index === 0) {
+        this.#hooks.scheduleDrain(agentId);
+        return;
+      }
+      const timer = setTimeout(() => {
+        this.#releaseTimers.delete(timer);
+        this.#hooks.scheduleDrain(agentId);
+      }, index * RELEASE_STAGGER_MS);
+      this.#releaseTimers.add(timer);
+    });
+  }
 
   readonly #releaseFailure = Effect.fn("UsageLimitGate.releaseFailure")(function* (this: UsageLimitGate, key: string) {
     const failure = this.#failures.get(key);
