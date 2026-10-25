@@ -810,6 +810,47 @@ models, with bare ids such as `deepseek-v4-pro`. The Pi client loads no key exte
 the user's own `deepseek` models, for example from `DEEPSEEK_API_KEY` in Pi's environment.
 DeepSeek is local-only, as Inception is.
 
+## Magpie
+
+[Magpie](https://github.com/yetone/magpie) is a local LLM gateway that the user runs (`magpie serve`).
+It serves an OpenAI-compatible API under `/v1` and answers `GET /api/hello`. OpenBot reads its port
+from `~/.config/magpie/settings.json` (on Windows also `%APPDATA%\magpie\settings.json`): a numeric
+`port` at the top level or under `server` or `gateway`, else 3425 (`src/backend/magpie.ts`). Every
+request sends the public app key `magpie-openbot` (`MAGPIE_API_KEY`), which names OpenBot to Magpie
+and is not a secret.
+
+- **Detection.** The local server scan probes Magpie at the port from its settings file, with the app
+  key, so Magpie shows beside Ollama and LM Studio (`DEFAULT_MODEL_SERVERS.magpie`).
+- **Provider.** `magpie` is a provider of its own on Pi's managed CLI (`cliProvider: "pi"`), with no
+  key to paste. Before each Pi spawn the client reads the gateway's model list. With no gateway that
+  answers, the provider has no models, so it shows as not signed in, and Connect checks again. The
+  extension from `pi-key-providers.ts` registers the `magpie` provider with the gateway's base URL,
+  the app key and its models (reasoning levels map to Pi's thinking levels). Pi runs one process per
+  thread and runs an extension again at each session switch, so the extension reads a small session
+  file and sends `X-Magpie-Session: openbot-<hash of the Pi session file>`. Magpie routes the requests
+  of one thread together. A refused connection or a 401 shows a text that says to start or allow
+  Magpie (`#failureText`). Magpie is local-only and, with the key-only providers, hidden from Team API
+  peers on every protocol (`HOST_ONLY_PROVIDERS`).
+- **Start and stop.** With auto-start on (`openbot-magpie-v1.json`), main runs `magpie serve` at
+  start when no gateway answers and a `magpie` command is on PATH (`src/main/magpie-gateway.ts`). It
+  stops the gateway on quit only when it started it.
+
+## Delegation tiers
+
+The user sets a provider, a model and an effort for three tiers, `fast`, `balanced` and `deep`
+(`ipc-delegation-tiers.ts`, stored in `openbot-delegation-tiers-v1.json`, this computer only). A lead
+agent passes `tier` to `create_agent`, `update_profile` or `update_agents` in place of a provider and a
+model. `resolveTierRequest` replaces the tier with its model, and `requestedToolModel` checks it as it
+checks a named model. A tier with a provider or a model, or a tier that is not set, is an error that
+the lead can correct. `list_models` shows the tiers that are set, each with when to use it. These
+tiers are not `fastServiceTier`, which is a provider's fast mode of one model.
+
+`create_agent` also gives the new agent a short excerpt (6,000 characters) of the caller's recent
+conversation (`includeContext`, default true; `send_message` sends one only when the caller asks).
+`deliveryPromptInput` puts it in front of the request in a block that says it is untrusted
+collaborator data, and `teammatePrompts` skips the block. The excerpts stay in memory
+(`DelegationContexts`), so a delivery that starts after a restart goes without one.
+
 ## Muse
 
 Muse uses the official `@muse-code/sdk` to run `muse serve` over MSP. The SDK is pinned to `1.4.2`;
