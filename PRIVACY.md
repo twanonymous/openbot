@@ -1167,9 +1167,11 @@ DeepSeek agents stay on this computer: OpenBot does not show them to team member
 
 Magpie is a local LLM gateway that you run on this computer. OpenBot reads the port in Magpie's own
 settings file and sends requests only to `127.0.0.1` at that port, with the public app name
-`magpie-openbot` as its key. Magpie agents run in the Pi CLI that OpenBot downloads for Pi. Prompts,
-attachments, and tool results go to that process, and Pi sends them to the Magpie gateway, with a
-session header that is a hash of the Pi session file, not its path. Magpie then sends them to the
+`magpie-openbot` as its key. Magpie agents run in Claude Code, in a Claude Code folder of their own,
+with no Claude account and no Anthropic key from your shell. Prompts, attachments, and tool results go
+to that process, and it sends them to the Magpie gateway, not to Anthropic, with a session header that
+is a hash of the conversation's id. Claude Code's non-essential traffic (telemetry, error reports and
+update checks) is off for these agents. Magpie then sends them to the
 providers that you set up in Magpie; their terms apply. When you turn on auto-start, OpenBot runs
 `magpie serve` from your PATH and stops it on quit. Magpie agents stay on this computer: OpenBot does
 not show them to team members.

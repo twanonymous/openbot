@@ -813,7 +813,8 @@ DeepSeek is local-only, as Inception is.
 ## Magpie
 
 [Magpie](https://github.com/yetone/magpie) is a local LLM gateway that the user runs (`magpie serve`).
-It serves an OpenAI-compatible API under `/v1` and answers `GET /api/hello`. OpenBot reads its port
+It serves an OpenAI-compatible API under `/v1`, an Anthropic-compatible `POST /v1/messages` for every
+model it routes, and answers `GET /api/hello`. OpenBot reads its port
 from `~/.config/magpie/settings.json` (on Windows also `%APPDATA%\magpie\settings.json`): a numeric
 `port` at the top level or under `server` or `gateway`, else 3425 (`src/backend/magpie.ts`). Every
 request sends the public app key `magpie-openbot` (`MAGPIE_API_KEY`), which names OpenBot to Magpie
@@ -821,16 +822,33 @@ and is not a secret.
 
 - **Detection.** The local server scan probes Magpie at the port from its settings file, with the app
   key, so Magpie shows beside Ollama and LM Studio (`DEFAULT_MODEL_SERVERS.magpie`).
-- **Provider.** `magpie` is a provider of its own on Pi's managed CLI (`cliProvider: "pi"`), with no
-  key to paste. Before each Pi spawn the client reads the gateway's model list. With no gateway that
-  answers, the provider has no models, so it shows as not signed in, and Connect checks again. The
-  extension from `pi-key-providers.ts` registers the `magpie` provider with the gateway's base URL,
-  the app key and its models (reasoning levels map to Pi's thinking levels). Pi runs one process per
-  thread and runs an extension again at each session switch, so the extension reads a small session
-  file and sends `X-Magpie-Session: openbot-<hash of the Pi session file>`. Magpie routes the requests
-  of one thread together. A refused connection or a 401 shows a text that says to start or allow
-  Magpie (`#failureText`). Magpie is local-only and, with the key-only providers, hidden from Team API
-  peers on every protocol (`HOST_ONLY_PROVIDERS`).
+- **Provider.** `magpie` is a provider of its own on Claude Code (`cliProvider: "claude"`, the same
+  `resolveClaudeCli`), with no key to paste. The driver makes a `ClaudeAgentClient` in Magpie mode
+  (`ClaudeMagpieMode`, `src/backend/magpie-claude.ts`):
+  - **Account.** The provider is signed in while `GET /api/hello` answers. Otherwise it shows
+    `error.provider.magpieNotRunning`, and Connect checks again. It does not run `claude auth status`.
+  - **Models.** `model/list` reads the gateway's `/v1/models`, not Claude Code's list. The name is
+    `display_name`, else `magpie_label`, else the id. Reasoning levels that are Claude Code efforts
+    (`low`, `medium`, `high`, `xhigh`, `max`) become the model's efforts, with `high` first; a model
+    with none has no effort to set. The first `auto/` group comes first, so it is the default.
+  - **Query environment.** Each query removes every inherited Anthropic credential, endpoint, model
+    and cache variable (`ANTHROPIC_API_KEY`, `CLAUDE_CODE_OAUTH_TOKEN`, `CLAUDE_CONFIG_DIR`, the
+    Bedrock, Vertex and Foundry switches, `ENABLE_PROMPT_CACHING_1H` and others), then sets
+    `ANTHROPIC_BASE_URL` to the gateway root, `ANTHROPIC_AUTH_TOKEN=magpie-openbot`,
+    `ANTHROPIC_CUSTOM_HEADERS=X-Magpie-Session: openbot-<sha256 of the thread id>`, the thread's model
+    as `ANTHROPIC_MODEL` and as the haiku, small-fast, sonnet, opus and subagent models (so background
+    requests do not ask for a Claude id), and `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+    `CLAUDE_CONFIG_DIR` is `<userData>/provider-state/magpie-claude`, so the process never reads the
+    user's Claude account and keeps its sessions apart.
+  - **Usage.** There is no plan to read: `account/rateLimits/read` is empty and `rate_limit_event` is
+    ignored. Token counts are collected as for Claude, with no cost: Claude Code prices other models
+    at a Claude list price.
+  - **Errors.** A refused connection, a 401 or 403, or "Invalid API key" from Claude Code shows the
+    text that says to start or allow Magpie (`magpieFailureText`).
+  A thread from the earlier Pi client has no Claude session, so it starts a new session from the
+  OpenBot transcript. Magpie is local-only and, with the key-only providers, hidden from Team API
+  peers on every protocol (`HOST_ONLY_PROVIDERS`). `bun scripts/magpie-claude-live-e2e.ts` runs one
+  small turn through a real gateway; CI does not run it.
 - **Start and stop.** With auto-start on (`openbot-magpie-v1.json`), main runs `magpie serve` at
   start when no gateway answers and a `magpie` command is on PATH (`src/main/magpie-gateway.ts`). It
   stops the gateway on quit only when it started it.

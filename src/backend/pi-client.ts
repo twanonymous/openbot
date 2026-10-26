@@ -12,7 +12,6 @@ import type { AgentClient, DiagnosticOrigin } from "./agent-client";
 import { type AgentCliInfo, cliPathEnvironment, cliSpawnTarget } from "./cli";
 import { runCauseEffect } from "./effect-boundary";
 import { type DynamicToolNamespace, LocalMcpBridge, type LocalMcpSession } from "./local-mcp-bridge";
-import type { MagpieGatewayInfo } from "./magpie";
 import {
   agentMcpServers,
   claudeMcpServers,
@@ -25,7 +24,7 @@ import {
 } from "./mcp-provider-shapes";
 import { mcpSecretValues, redactMcpRecord, redactMcpValues } from "./mcp-redaction";
 import { PendingServerRequests } from "./pending-server-requests";
-import { createPiKeyExtension, createPiMagpieExtension, type PiMagpieExtension } from "./pi-key-providers";
+import { createPiKeyExtension } from "./pi-key-providers";
 import { createPiMcpExtension, type PiMcpExtension } from "./pi-mcp";
 import { piMessageItems, piPrompt, piText } from "./pi-messages";
 import { PiRpc } from "./pi-rpc";
@@ -78,12 +77,6 @@ export interface PiProviderOptions {
    * `<provider>/` prefix.
    */
   keyProvider?: { id: KeyOnlyProviderId; apiKey: () => string | null };
-  /**
-   * The Magpie gateway on this computer, read at each spawn. With it the client is the `magpie`
-   * provider: Pi lists only the gateway's models, with bare ids, and each process sends its thread
-   * in `X-Magpie-Session`. Null means that no gateway answers, so the provider has no models.
-   */
-  magpie?: { gateway: () => Effect.Effect<MagpieGatewayInfo | null> };
   providerStateDirectory?: string;
   profileGeneration?: boolean;
   mcpServers?: McpServerSource;
@@ -113,7 +106,7 @@ interface PiThread {
   rpc: PiRpc;
   mcp: LocalMcpSession;
   extension: PiMcpExtension;
-  keyExtension: PiProviderExtension | null;
+  keyExtension: PiMcpExtension | null;
   turn: PiTurn | null;
   closed: boolean;
   gate: Semaphore.Semaphore;
@@ -125,16 +118,10 @@ interface ClientEvents {
   diagnostic: [string, DiagnosticOrigin?];
 }
 
-/** The providers that the Pi client runs: Pi itself, the key-only providers and Magpie. */
-export type PiClientProviderId = "pi" | KeyOnlyProviderId | "magpie";
-
-/** The extension that gives a provider other than Pi its key or its gateway. */
-type PiProviderExtension = PiMcpExtension & { setSession?: PiMagpieExtension["setSession"] };
-
 /** Owns Pi's native sessions. The database owns OpenBot history and agent identity. */
 export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentClient {
   readonly contextCompaction = "request";
-  readonly provider: PiClientProviderId;
+  readonly provider: "pi" | KeyOnlyProviderId;
   readonly #bridge = new LocalMcpBridge();
   readonly #requests = new PendingServerRequests((request) => this.emit("request", request));
   readonly #threads = new Map<string, PiThread>();
@@ -150,7 +137,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
     private readonly options: PiProviderOptions,
   ) {
     super();
-    this.provider = options.keyProvider?.id ?? (options.magpie ? "magpie" : "pi");
+    this.provider = options.keyProvider?.id ?? "pi";
   }
   get running(): boolean {
     return this.#running;
@@ -174,16 +161,9 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
 
   #redact = (text: string): string => redactMcpValues(redactText(text), this.#secretValues());
 
-  /**
-   * Pi starts an API error with its HTTP status. A key provider's 401 and 402 point at the saved key.
-   * A Magpie error that a refused connection or a 401 causes says how to start or allow the gateway.
-   */
+  /** Pi starts an API error with its HTTP status. A key provider's 401 and 402 point at the saved key. */
   #failureText(message: string | null): string {
-    if (message && this.provider === "magpie") {
-      if (/^40[13]\b/u.test(message)) return sourceText("error.provider.magpieRefused");
-      if (/ECONNREFUSED|ECONNRESET|connection (error|refused)|fetch failed|socket hang up/iu.test(message))
-        return sourceText("error.provider.magpieNotRunning");
-    } else if (message && this.provider !== "pi") {
+    if (message && this.provider !== "pi") {
       const provider = agentProviderName(this.provider);
       if (/^401\b/u.test(message)) return sourceText("error.provider.keyProviderRefused", { provider });
       if (/^402\b/u.test(message)) return sourceText("error.provider.keyProviderNoBalance", { provider });
@@ -331,12 +311,9 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
   });
 
   readonly #models = Effect.fn("PiAgentClient.models")(function* (this: PiAgentClient, timeoutMs?: number) {
-    // With no key a key-only provider has no models, and Pi need not start. Neither has Magpie with
-    // no gateway that answers.
+    // With no key a key-only provider has no models, and Pi need not start.
     const keyProvider = this.options.keyProvider;
     if (keyProvider && !keyProvider.apiKey()) return [];
-    const gateway = this.options.magpie ? yield* this.options.magpie.gateway() : null;
-    if (this.options.magpie && !gateway) return [];
     const rpc = new PiRpc(this.#redact, this.provider);
     rpc.on("diagnostic", (text) => this.emit("diagnostic", text));
     rpc.on("record", (record) => {
@@ -349,7 +326,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
     });
     return yield* Effect.acquireUseRelease(
       Effect.gen({ self: this }, function* () {
-        const keyExtension = gateway ? yield* this.#magpieExtension(gateway) : yield* this.#keyExtension();
+        const keyExtension = yield* this.#keyExtension();
         yield* providerSync(() =>
           this.#spawn(
             rpc,
@@ -369,7 +346,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
             const provider = getString(model, "provider");
             const id = getString(model, "id");
             // A key provider's client lists only its own models. Pi also lists the models of other signed-in providers.
-            if (!provider || !id || (this.provider !== "pi" && provider !== this.provider)) continue;
+            if (!provider || !id || (keyProvider && provider !== keyProvider.id)) continue;
             const reasoning = isRecord(model) && model.reasoning === true;
             let levels: string[] = [];
             if (reasoning) {
@@ -381,7 +358,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
             }
             const preferred = getString(state, "thinkingLevel");
             models.push({
-              model: this.provider !== "pi" ? id : `${provider}/${id}`,
+              model: keyProvider ? id : `${provider}/${id}`,
               displayName: getString(model, "name") ?? id,
               defaultReasoningEffort: preferred && levels.includes(preferred) ? preferred : (levels[0] ?? "none"),
               supportedReasoningEfforts: levels.map((reasoningEffort) => ({ reasoningEffort })),
@@ -395,20 +372,6 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
           .stop()
           .pipe(Effect.ensuring(keyExtension ? keyExtension.close().pipe(Effect.orDie) : Effect.void), Effect.orDie),
     );
-  });
-
-  readonly #magpieExtension = Effect.fn("PiAgentClient.magpieExtension")(function* (
-    this: PiAgentClient,
-    gateway: MagpieGatewayInfo,
-  ) {
-    return yield* createPiMagpieExtension(gateway, this.options.providerStateDirectory);
-  });
-
-  /** The extension of a provider other than Pi, for a thread. Null for Pi, or with no key or gateway. */
-  readonly #providerExtension = Effect.fn("PiAgentClient.providerExtension")(function* (this: PiAgentClient) {
-    if (!this.options.magpie) return yield* this.#keyExtension();
-    const gateway = yield* this.options.magpie.gateway();
-    return gateway ? yield* this.#magpieExtension(gateway) : null;
   });
 
   readonly #keyExtension = Effect.fn("PiAgentClient.keyExtension")(function* (this: PiAgentClient) {
@@ -450,7 +413,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
     const cwd = yield* providerSync(() => requiredString(params, "cwd"));
     let thread: PiThread | null = null;
     let extension: PiMcpExtension | null = null;
-    let keyExtension: PiProviderExtension | null = null;
+    let keyExtension: PiMcpExtension | null = null;
     const rpc = new PiRpc(this.#redact, this.provider);
     let retained = false;
     const mcp = yield* this.#bridge
@@ -473,11 +436,7 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
       this.options.reportMcpDrops?.(this.provider, handoff.dropped);
       extension = yield* createPiMcpExtension(handoff.servers, mcp, this.options.providerStateDirectory);
       for (const secret of extension.secrets) this.#secrets.add(secret);
-      keyExtension = yield* this.#providerExtension();
-      if (this.options.magpie && !keyExtension)
-        return yield* providerFailure(new Error(sourceText("error.provider.magpieNotRunning")));
-      // A resumed thread is known before the spawn. A new one is named after Pi writes its file.
-      if (resume && requestedId && keyExtension?.setSession) yield* keyExtension.setSession(requestedId);
+      keyExtension = yield* this.#keyExtension();
       rpc.on("diagnostic", (text) => this.emit("diagnostic", text, { duringStop: thread?.closed ?? false }));
       rpc.on("record", (record) => {
         if (thread && !thread.closed) this.#record(thread, record);
@@ -527,8 +486,6 @@ export class PiAgentClient extends EventEmitter<ClientEvents> implements AgentCl
             throw cause;
           }
         });
-        // The session switch below runs the Magpie extension again, which then reads this thread.
-        if (keyExtension?.setSession) yield* keyExtension.setSession(id);
         if (created) {
           const loaded = yield* rpc.request({ type: "switch_session", sessionPath: id });
           const persisted = yield* rpc.request({ type: "get_state" });

@@ -980,8 +980,9 @@ export class ThreadLifecycle {
       serverHost: this.#serverHost,
       memoryLimit: this.#memories.limit(),
       storedMemoryCount: this.#memories.listFor(agent.id).length,
-      memoriesInTurns: client.provider === "claude",
-      teammatesInTurns: client.provider === "claude",
+      // Magpie runs in the Claude client, which sends these with the turns.
+      memoriesInTurns: client.provider === "claude" || client.provider === "magpie",
+      teammatesInTurns: client.provider === "claude" || client.provider === "magpie",
       sectionTeammates: section,
     };
     const instructions = developerInstructions(

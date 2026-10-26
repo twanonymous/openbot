@@ -7,6 +7,7 @@ import {
   type AgentModelOption,
   type AgentProviderId,
   DEFAULT_PROMPT_CACHE_TTL,
+  type KeyOnlyProviderId,
   type PromptCacheTtl,
 } from "@openbot/contracts/ipc";
 import { sourceText } from "@openbot/i18n/source";
@@ -45,7 +46,7 @@ import { clineFreeModels } from "./cline-free-models";
 import { readCursorUsage } from "./cursor-usage";
 import { CustomAcpAgentsClient, type CustomAgentConfig, type CustomAgentSource } from "./custom-acp-agents-client";
 import { GrokAgentClient } from "./grok-client";
-import { readMagpieGateway } from "./magpie";
+import { magpieGatewayOrigin } from "./magpie";
 import type { McpOAuthAuthority } from "./mcp-oauth-provider";
 import type { McpOAuthProxySettingsStore } from "./mcp-oauth-proxy";
 import type { McpDropReporter, McpEndpointSource, McpServerSource, McpToolRuntimeSource } from "./mcp-provider-shapes";
@@ -58,7 +59,7 @@ import {
   openCodeSignInMessage,
 } from "./opencode-config";
 import { readOpenCodeGoUsage } from "./opencode-usage";
-import { PiAgentClient, type PiClientProviderId } from "./pi-client";
+import { PiAgentClient } from "./pi-client";
 import {
   antigravityStatePaths,
   clineStatePaths,
@@ -412,6 +413,31 @@ function claudeFallbackApiKey(context: ProviderClientContext): (() => string | n
   return context.accountEnvironment ? undefined : () => context.apiKey("claude");
 }
 
+/**
+ * The Claude client for Magpie. It has a Claude Code folder of its own, so it never reads the user's
+ * Claude account, and none of the Claude provider's key, account folder or cache choice.
+ */
+function magpieClaudeClient(cli: AgentCliInfo, requestTimeoutMs: number, context: ProviderClientContext): AgentClient {
+  const configDirectory = join(context.providerStateDirectory ?? tmpdir(), "magpie-claude");
+  mkdirSync(configDirectory, { recursive: true, mode: 0o700 });
+  return new ClaudeAgentClient(
+    cli,
+    undefined,
+    undefined,
+    requestTimeoutMs,
+    context.mcpServers,
+    context.reportMcpDrops,
+    context.mcpToolRuntimes,
+    context.mcpEndpoint,
+    context.providerStateDirectory,
+    // The history reader takes the folder from here. The query environment sets it again.
+    (inherited) => ({ ...context.agentEnvironment?.(inherited), CLAUDE_CONFIG_DIR: configDirectory }),
+    undefined,
+    undefined,
+    { origin: () => magpieGatewayOrigin(), configDirectory },
+  );
+}
+
 /** Nothing stored and no endpoint, for tests and for call sites that predate the credential store. */
 export const NO_PROVIDER_CREDENTIALS: ProviderClientContext = {
   apiKey: () => null,
@@ -484,12 +510,9 @@ export interface BuiltInProviderDriver {
   validateAccount(account: NonNullable<AccountReadResult["account"]>): void;
 }
 
-/**
- * Pi, the key-only providers and Magpie run the same Pi client. A key-only provider adds its key
- * extension, and Magpie the extension that registers the gateway.
- */
+/** Pi and the key-only providers run the same Pi client. A key-only provider adds its key extension. */
 function piClient(
-  provider: PiClientProviderId,
+  provider: "pi" | KeyOnlyProviderId,
   cli: AgentCliInfo,
   timeout: number,
   context: ProviderClientContext,
@@ -518,14 +541,12 @@ function piClient(
   });
 }
 
-function piKeyProvider(provider: PiClientProviderId, context: ProviderClientContext) {
-  if (provider === "pi") return {};
-  if (provider === "magpie") return { magpie: { gateway: () => readMagpieGateway() } };
-  return { keyProvider: { id: provider, apiKey: () => context.apiKey(provider) } };
+function piKeyProvider(provider: "pi" | KeyOnlyProviderId, context: ProviderClientContext) {
+  return provider === "pi" ? {} : { keyProvider: { id: provider, apiKey: () => context.apiKey(provider) } };
 }
 
 function piProfileClient(
-  provider: PiClientProviderId,
+  provider: "pi" | KeyOnlyProviderId,
   cli: AgentCliInfo,
   timeout: number,
   context: ProviderClientContext,
@@ -573,12 +594,12 @@ export const BUILT_IN_PROVIDER_DRIVERS: readonly BuiltInProviderDriver[] = [
   },
   {
     id: "magpie",
-    // No key: the provider has models while the user's Magpie gateway answers. Connect checks again.
+    // No key: the provider is ready while the user's Magpie gateway answers. Connect checks again.
+    // It runs Claude Code against the gateway's Anthropic-compatible API (`magpie-claude.ts`).
     signIn: { kind: "external" },
-    cliProvider: "pi",
-    resolveCli: resolvePiCli,
-    createClient: (cli, timeout, context, confinement) => piClient("magpie", cli, timeout, context, confinement),
-    createProfileClient: (cli, timeout, context) => piProfileClient("magpie", cli, timeout, context),
+    cliProvider: "claude",
+    resolveCli: resolveClaudeCli,
+    createClient: (cli, requestTimeoutMs, context) => magpieClaudeClient(cli, requestTimeoutMs, context),
     authState: (account) => ({ kind: "magpie", email: account?.email ?? null }),
     validateAccount: () => undefined,
   },

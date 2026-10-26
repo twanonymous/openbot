@@ -108,7 +108,8 @@ export function isMissingProviderSessionError(error: unknown, provider: AgentPro
   // ACP clients convert confirmed missing-session responses before this boundary.
   // Provider diagnostics can mention missing resources without proving that this session is gone.
   if (error instanceof RequestError) return false;
-  if (provider === "claude") return error instanceof MissingClaudeSessionError;
+  // Magpie runs in the Claude client. A thread from its earlier Pi client has no Claude session.
+  if (provider === "claude" || provider === "magpie") return error instanceof MissingClaudeSessionError;
   if (provider === "codex") return isCodexMissingThreadError(error);
   if (
     (provider !== "grok" &&

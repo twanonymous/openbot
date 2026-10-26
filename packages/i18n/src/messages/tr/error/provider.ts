@@ -372,7 +372,6 @@ export const messages = {
   "error.provider.museSignIn": "Devam etmek için ana makinede Muse'da oturum açın.",
   "error.provider.inceptionSignIn": "Devam etmek için bir Inception API anahtarı ekleyin.",
   "error.provider.deepseekSignIn": "Devam etmek için bir DeepSeek API anahtarı ekleyin.",
-  "error.provider.magpieSignIn": "Magpie'yi magpie serve ile başlatın, sonra yeniden deneyin.",
   "error.provider.magpieNotRunning":
     "Magpie bu bilgisayarda çalışmıyor. magpie serve ile başlatın veya otomatik başlatmayı açın, sonra yeniden deneyin.",
   "error.provider.magpieRefused":

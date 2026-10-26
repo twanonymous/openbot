@@ -81,6 +81,8 @@ import {
 } from "./conversation-snapshots";
 import { runCauseEffect } from "./effect-boundary";
 import { IdleThreadPool } from "./idle-thread-pool";
+import { checkMagpieHealth, type FetchLike, listMagpieModels } from "./magpie";
+import { magpieFailureText, magpieModelOptions, magpieQueryEnvironment } from "./magpie-claude";
 import {
   agentMcpServers,
   claudeMcpServers,
@@ -277,10 +279,25 @@ type ClaudeEffortCapability = { supported: ClaudeEffort[]; defaultEffort: Claude
 
 const queryLogger = createOpenBotLogger("claude-query");
 
+/**
+ * With it, the client is the `magpie` provider: Claude Code against the Magpie gateway on this
+ * computer (`magpie-claude.ts`), with no Claude account.
+ */
+export interface ClaudeMagpieMode {
+  /** The gateway root, such as `http://127.0.0.1:3425`, read at each use. */
+  origin: () => Effect.Effect<string>;
+  /** The Claude Code folder of the provider, apart from the user's own. */
+  configDirectory: string;
+  fetch?: FetchLike;
+}
+
 export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
   readonly contextCompaction = "native";
   #queryRestarts = 0;
-  readonly provider: AgentProvider = "claude";
+  readonly provider: AgentProvider;
+  readonly #magpie: ClaudeMagpieMode | undefined;
+  /** The model a Magpie thread with no model runs: the first of the last list. */
+  #magpieDefaultModel: string | null = null;
   readonly #cli: ClaudeCliInfo;
   readonly #createQuery: QueryFactory;
   readonly #readSessionMessages: SessionHistoryReader | undefined;
@@ -348,8 +365,11 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     agentEnvironment?: (inherited?: NodeJS.ProcessEnv) => Readonly<Record<string, string>>,
     historyIndexDirectory?: string,
     fallbackApiKey?: () => string | null,
+    magpie?: ClaudeMagpieMode,
   ) {
     super();
+    this.provider = magpie ? "magpie" : "claude";
+    this.#magpie = magpie;
     this.#cli = cli;
     this.#createQuery = createQuery;
     this.#readSessionMessages = readSessionMessages;
@@ -459,15 +479,21 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       case "initialize":
         return yield* providerSync(() => decoder({}));
       case "account/read": {
-        const response = yield* this.#readAccountEffect();
+        const response = this.#magpie ? yield* this.#readMagpieAccount(this.#magpie) : yield* this.#readAccountEffect();
         return yield* providerSync(() => decoder(response));
       }
       case "account/rateLimits/read": {
+        // Magpie has no Anthropic plan, so there is no usage to read.
+        if (this.#magpie) return yield* providerSync(() => decoder({ rateLimits: null, rateLimitsByLimitId: null }));
         const response = yield* this.#readUsageEffect(getString(params, "model"), timeoutMs ?? this.#requestTimeoutMs);
         return yield* providerSync(() => decoder(response));
       }
       case "model/list": {
-        const response = { data: yield* this.#listModelsEffect(timeoutMs) };
+        const response = {
+          data: this.#magpie
+            ? yield* this.#listMagpieModels(this.#magpie, timeoutMs)
+            : yield* this.#listModelsEffect(timeoutMs),
+        };
         return yield* providerSync(() => decoder(response));
       }
       case "plugin/list":
@@ -623,6 +649,43 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
         }),
       ),
     );
+  });
+
+  /** The provider is ready while the gateway answers. There is no account, so no email. */
+  readonly #readMagpieAccount = Effect.fn("ClaudeAgentClient.readMagpieAccount")(function* (
+    this: ClaudeAgentClient,
+    magpie: ClaudeMagpieMode,
+  ): Effect.fn.Return<AccountReadResult, ProviderClientOperationError> {
+    const healthy = yield* checkMagpieHealth(magpie.fetch ?? fetchGateway, yield* magpie.origin());
+    return { account: healthy ? { type: "magpie", email: null, planType: null } : null, requiresOpenaiAuth: false };
+  });
+
+  /** The gateway's own list. Claude Code knows only Claude models, so it is not asked. */
+  readonly #listMagpieModels = Effect.fn("ClaudeAgentClient.listMagpieModels")(function* (
+    this: ClaudeAgentClient,
+    magpie: ClaudeMagpieMode,
+    timeoutMs?: number,
+  ): Effect.fn.Return<unknown[], ProviderClientOperationError> {
+    const origin = yield* magpie.origin();
+    const models = yield* listMagpieModels(magpie.fetch ?? fetchGateway, origin, timeoutMs).pipe(
+      Effect.mapError((failure) => providerFailure(new Error(failure.message))),
+    );
+    const options = magpieModelOptions(models);
+    this.#modelEffortCapabilities.clear();
+    this.#modelSdkValues.clear();
+    for (const option of options) {
+      const supported = option.supportedReasoningEfforts
+        .map(({ reasoningEffort }) => reasoningEffort)
+        .filter((effort) => isOneOf(CLAUDE_EFFORTS, effort));
+      const defaultEffort = supported.find((effort) => effort === option.defaultReasoningEffort) ?? supported[0];
+      this.#modelEffortCapabilities.set(
+        option.model,
+        option.reasoningEffortConfigurable && defaultEffort ? { supported, defaultEffort } : null,
+      );
+      this.#modelSdkValues.set(option.model, option.model);
+    }
+    this.#magpieDefaultModel = options[0]?.model ?? null;
+    return options;
   });
 
   readonly #readUsageEffect = Effect.fn("ClaudeAgentClient.readUsage")(function* (
@@ -822,15 +885,28 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
     const launchPath = yield* cliLaunchPath(this.#cli.executable, this.#cli.source);
     // `stop()` may have run during the await: a query created now would outlive the client.
     if (!this.#running) return yield* providerFailure(new Error("Claude Agent SDK is not running."));
+    const magpieOrigin = this.#magpie ? yield* this.#magpie.origin() : null;
     if (handoff) this.#reportMcpDrops?.(this.provider, handoff.dropped);
     const mcpServers = handoff ? { ...handoff.servers, ...this.#createOpenBotServers(threadId) } : {};
+    const model = config.model ?? (this.#magpie ? this.#magpieDefaultModel : null);
+    const environment = {
+      ...claudeEnvironment(this.#cli),
+      // The login shell's `PATH`, so the Bash tool and hooks find Homebrew and `~/.local/bin`
+      // tools when Finder starts OpenBot. An `env.PATH` in the Claude settings still wins.
+      ...(launchPath ? { PATH: launchPath } : {}),
+      ...this.#environment(this.#onApiKey),
+      CLAUDE_AGENT_SDK_CLIENT_APP: "openbot/0.1.0",
+      // Without a terminal, the CLI gives the newer models no TodoWrite or task tools, so the
+      // agent has no plan for OpenBot to show as a task list.
+      CLAUDE_CODE_ENABLE_TODO_TOOLS: "1",
+    };
     const claudeQuery = yield* providerSync(() =>
       this.#createQuery({
         prompt: input,
         options: {
           cwd: config.cwd,
           pathToClaudeCodeExecutable: this.#cli.executable,
-          ...(config.model ? { model: this.#sdkModel(config.model) } : {}),
+          ...(model ? { model: this.#sdkModel(model) } : {}),
           ...(appliedEffort ? { effort: appliedEffort } : {}),
           ...(resume ? { resume: threadId } : { sessionId: threadId }),
           systemPrompt: {
@@ -873,17 +949,15 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
               }
             : {}),
           mcpServers,
-          env: {
-            ...claudeEnvironment(this.#cli),
-            // The login shell's `PATH`, so the Bash tool and hooks find Homebrew and `~/.local/bin`
-            // tools when Finder starts OpenBot. An `env.PATH` in the Claude settings still wins.
-            ...(launchPath ? { PATH: launchPath } : {}),
-            ...this.#environment(this.#onApiKey),
-            CLAUDE_AGENT_SDK_CLIENT_APP: "openbot/0.1.0",
-            // Without a terminal, the CLI gives the newer models no TodoWrite or task tools, so the
-            // agent has no plan for OpenBot to show as a task list.
-            CLAUDE_CODE_ENABLE_TODO_TOOLS: "1",
-          },
+          env:
+            this.#magpie && magpieOrigin !== null
+              ? magpieQueryEnvironment(environment, {
+                  origin: magpieOrigin,
+                  threadId,
+                  model,
+                  configDirectory: this.#magpie.configDirectory,
+                })
+              : environment,
         },
       }),
     );
@@ -1165,6 +1239,8 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       this.#emitContextUsage(runtime, message.context_usage.total_tokens, message.context_usage.raw_max_tokens);
     }
     if (message.type === "rate_limit_event") {
+      // Plan windows are Anthropic's. Through Magpie they would describe no account of the user.
+      if (this.#magpie) return;
       const info = message.rate_limit_info;
       if (!isDynamicRecord(info)) return;
       const turn = runtime.activeTurn;
@@ -1628,9 +1704,10 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
       },
     });
     if (status === "failed" && error) {
+      const message = this.#magpie ? magpieFailureText(String(error)) : String(error);
       this.emit("notification", {
         method: "error",
-        params: { threadId: runtime.id, turnId: turn.id, message: String(error) },
+        params: { threadId: runtime.id, turnId: turn.id, message },
       });
     }
     this.#emitSubagents(runtime, endClaudeSubagentTurn(runtime.subagents, turn.id, new Date().toISOString()));
@@ -1891,9 +1968,13 @@ export class ClaudeAgentClient extends EventEmitter<ClientEvents> {
   }
 
   #sdkModel(model: string): string {
+    // A Magpie id is the gateway's own, never a Claude Code alias.
+    if (this.#magpie) return model;
     return this.#modelSdkValues.get(model) ?? normalizeClaudeModel(model);
   }
 }
+
+const fetchGateway: FetchLike = (input, init) => fetch(input, init);
 
 function claudeEnvironment(cli: ClaudeCliInfo): NodeJS.ProcessEnv {
   return {

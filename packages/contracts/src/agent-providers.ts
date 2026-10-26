@@ -399,13 +399,13 @@ const AGENT_PROVIDER_DESCRIPTOR_TABLE = {
     reportsUsage: false,
     approvalsInFullAccess: true,
   },
-  // Magpie is a local LLM gateway that the user runs (`magpie serve`). Its models run in the Pi CLI
-  // that OpenBot downloads for Pi. There is no key to paste: the provider is signed in while the
-  // gateway answers on this computer.
+  // Magpie is a local LLM gateway that the user runs (`magpie serve`). Its models run in Claude Code,
+  // pointed at the gateway's Anthropic-compatible API, with no Claude account. There is no key to
+  // paste: the provider is signed in while the gateway answers on this computer.
   magpie: {
     id: "magpie",
     displayName: "Magpie",
-    cliName: "Pi CLI",
+    cliName: "Claude Code",
     onboardingDescription: "Models from your local Magpie gateway",
     signInMessage: "Start Magpie with magpie serve, then try again.",
     installGuideLink: null,
@@ -415,12 +415,13 @@ const AGENT_PROVIDER_DESCRIPTOR_TABLE = {
     pickerOrder: 11,
     localCodeSignIn: null,
     signInPageEnd: "callback",
-    skillFolders: [".agents/skills"],
-    workspaceEnforcement: "confined-process",
+    // The Claude client runs it, so these are the Claude row's values.
+    skillFolders: [".claude/skills"],
+    workspaceEnforcement: "tool-sandbox",
     steer: "native",
     concurrentTurns: true,
     reportsUsage: false,
-    approvalsInFullAccess: true,
+    approvalsInFullAccess: false,
   },
   // One provider for every Agent Client Protocol agent the user adds by command. The model id names
   // the agent (`<customAgentId>/<agentModel>`), so one provider row serves them all and the shipped
@@ -532,8 +533,8 @@ export function isKeyOnlyProvider(provider: AgentProviderRef): provider is KeyOn
 }
 
 /**
- * The providers that run in the host's Pi CLI with the host's own key or gateway, so no Team API
- * peer sees them: the key-only providers and Magpie, a gateway on the host computer.
+ * The providers that run with the host's own key or gateway, so no Team API peer sees them: the
+ * key-only providers, in the host's Pi CLI, and Magpie, a gateway on the host computer.
  */
 export const HOST_ONLY_PROVIDERS = [...KEY_ONLY_PROVIDERS, "magpie"] as const satisfies readonly AgentProviderId[];
 

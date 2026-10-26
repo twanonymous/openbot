@@ -57,7 +57,8 @@ export function collectProviderUsage(
     });
     return;
   }
-  if (session.provider === "claude") {
+  // Magpie runs in the Claude client, so it reports the same counters.
+  if (session.provider === "claude" || session.provider === "magpie") {
     const models = getRecord(params, "modelUsage");
     const counterId = getString(params, "counterId");
     if (!models || !counterId) return;
@@ -86,7 +87,11 @@ export function collectProviderUsage(
         smallestRequestInputTokens: turnModel ? count(turnModel.smallestRequestInputTokens) : null,
         baseline: false,
         tokens,
-        reportedCost: value.costBasis === "unknown" || value.costBasis === "managed" ? null : cost(value.costUSD),
+        // Claude Code prices a Magpie model at a Claude list price that the gateway does not charge.
+        reportedCost:
+          session.provider === "magpie" || value.costBasis === "unknown" || value.costBasis === "managed"
+            ? null
+            : cost(value.costUSD),
       });
     }
     return;

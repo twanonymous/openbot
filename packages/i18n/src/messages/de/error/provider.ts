@@ -395,7 +395,6 @@ export const messages = {
   "error.provider.museSignIn": "Melde dich auf dem Host-Computer bei Muse an, um fortzufahren.",
   "error.provider.inceptionSignIn": "Füge einen Inception-API-Schlüssel hinzu, um fortzufahren.",
   "error.provider.deepseekSignIn": "Füge einen DeepSeek-API-Schlüssel hinzu, um fortzufahren.",
-  "error.provider.magpieSignIn": "Starten Sie Magpie mit magpie serve und versuchen Sie es erneut.",
   "error.provider.magpieNotRunning":
     "Magpie läuft nicht auf diesem Computer. Starten Sie es mit magpie serve oder aktivieren Sie den Autostart und versuchen Sie es erneut.",
   "error.provider.magpieRefused":

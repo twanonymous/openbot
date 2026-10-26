@@ -271,7 +271,7 @@ export function developerInstructions(
     `The shared directory available to every OpenBot agent is ${sharedRoot}.`,
     workspaceAccessEnforced(agent)
       ? `The user limited you to Workspace only. You can read files anywhere, run local commands, and use the network, but a sandbox lets you write only in your working directory, the shared directory, and the temporary directories. Do not try to get around the sandbox. When a task truly needs a write outside these directories, ${
-          agent.provider === "claude"
+          agent.provider === "claude" || agent.provider === "magpie"
             ? "make that one change with a file edit tool, which asks the user, and say why; commands cannot write there; the user decides"
             : agent.provider === "codex"
               ? "request approval for that one command and say why; the user decides"

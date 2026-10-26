@@ -1,10 +1,12 @@
 // Magpie (github.com/yetone/magpie) is a local LLM gateway. These reads are shared by main, which
-// finds and starts the gateway, and by the Pi client, which runs the `magpie` provider through it.
+// finds and starts the gateway, and by the Claude client, which runs the `magpie` provider through
+// the gateway's Anthropic-compatible API.
 //
 // Magpie keeps its port in its own settings file. The file can be missing, and its shape is not a
 // released contract, so the parser reads only a numeric `port` at the top level or under `server`
 // or `gateway`, and falls back to the default port.
 
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -135,6 +137,8 @@ export const checkMagpieHealth = Effect.fn("MagpieGateway.checkHealth")(function
 /** One model or routing group that the gateway lists. */
 export interface MagpieModel {
   id: string;
+  /** The name that the gateway shows, when it gives one. */
+  name?: string;
   /** A routing group that the gateway sends to one of several models. */
   group: boolean;
   /** Reasoning levels the gateway accepts for this id, when it lists them. */
@@ -165,6 +169,14 @@ function reasoningLevels(entry: DynamicRecord): string[] {
   return [];
 }
 
+function displayName(entry: DynamicRecord): string | null {
+  for (const key of ["display_name", "magpie_label", "name"]) {
+    const value = entry[key];
+    if (isString(value) && value.trim() && value.trim().length <= MAX_ID_LENGTH) return value.trim();
+  }
+  return null;
+}
+
 function isGroup(entry: DynamicRecord): boolean {
   return (
     entry.object === "group" ||
@@ -187,7 +199,8 @@ export function parseMagpieModels(body: unknown): MagpieModel[] {
     const id = entry.id.trim();
     if (!id || id.length > MAX_ID_LENGTH || seen.has(id)) continue;
     seen.add(id);
-    models.push({ id, group: isGroup(entry), reasoningLevels: reasoningLevels(entry) });
+    const name = displayName(entry);
+    models.push({ id, ...(name ? { name } : {}), group: isGroup(entry), reasoningLevels: reasoningLevels(entry) });
   }
   return models;
 }
@@ -213,23 +226,17 @@ export const listMagpieModels = Effect.fn("MagpieGateway.listModels")(function* 
   return parseMagpieModels(body);
 });
 
-/** What the Pi client needs to register the `magpie` provider: the base URL and the model list. */
-export interface MagpieGatewayInfo {
-  baseUrl: string;
-  models: MagpieModel[];
-}
+/** The gateway origin on this computer, read at each use, so a port change needs no restart. */
+export const magpieGatewayOrigin = Effect.fn("MagpieGateway.origin")(function* (
+  location: MagpieSettingsLocation = defaultMagpieLocation(),
+) {
+  return magpieOrigin(yield* resolveMagpiePort(location));
+});
 
 /**
- * The gateway's base URL and models, or null when no gateway answers or it lists no model. The Pi
- * client reads this at each spawn, so a port change or a new model needs no restart of OpenBot.
+ * The `X-Magpie-Session` value of a thread: stable for the thread, so Magpie routes the requests of
+ * one thread together, and a hash, so the gateway does not see OpenBot's own id.
  */
-export const readMagpieGateway = Effect.fn("MagpieGateway.read")(function* (
-  options: { fetch?: FetchLike; location?: MagpieSettingsLocation } = {},
-) {
-  const origin = magpieOrigin(yield* resolveMagpiePort(options.location ?? defaultMagpieLocation()));
-  const models = yield* listMagpieModels(options.fetch ?? ((input, init) => fetch(input, init)), origin).pipe(
-    Effect.catch(() => Effect.succeed([])),
-  );
-  if (models.length === 0) return null;
-  return { baseUrl: `${origin}/v1`, models } satisfies MagpieGatewayInfo;
-});
+export function magpieSessionId(threadId: string): string {
+  return `openbot-${createHash("sha256").update(threadId).digest("hex").slice(0, 32)}`;
+}

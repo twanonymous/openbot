@@ -330,7 +330,6 @@ export const messages = {
   "error.provider.museSignIn": "请在主机电脑上登录 Muse 以继续。",
   "error.provider.inceptionSignIn": "请添加 Inception API 密钥以继续。",
   "error.provider.deepseekSignIn": "请添加 DeepSeek API 密钥以继续。",
-  "error.provider.magpieSignIn": "请用 magpie serve 启动 Magpie，然后重试。",
   "error.provider.magpieNotRunning":
     "Magpie 没有在这台电脑上运行。请用 magpie serve 启动它，或开启自动启动，然后重试。",
   "error.provider.magpieRefused":
