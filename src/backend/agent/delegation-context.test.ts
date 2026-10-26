@@ -26,7 +26,7 @@ function message(id: string, author: "user" | "assistant", text: string, minute:
 
 /** `readHandoffHistory` gives the newest message first. */
 function history(messages: ConversationMessage[]) {
-  return { recent: messages.toReversed().map((entry) => ({ message: entry })) };
+  return { recent: messages.toReversed().map((entry) => ({ message: entry, providerSessionId: null })) };
 }
 
 function delivery(overrides: Partial<QueueDelivery> = {}): QueueDelivery {
